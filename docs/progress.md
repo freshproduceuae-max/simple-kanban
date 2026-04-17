@@ -43,3 +43,16 @@
 - [x] Task 4: TaskCard + TaskDialog CRUD (feat/task-crud) — 2026-04-17
 - [x] Task 5: Drag-and-drop (feat/dnd) — 2026-04-17
 - [x] Task 6: Persistence hydration guard (feat/persistence) — 2026-04-17
+
+## Session log — 2026-04-17 (implementation)
+- Task 0–7 complete on branches feat/scaffold → feat/polish.
+- 27 vitest tests pass across 6 files (storage, useTasks, overdue, dragEnd, Board, TaskCard).
+- npm run lint clean; npm run build succeeds.
+- Removed orphaned app/fonts/ directory.
+- No remote configured, no PR created; all work on feature branches, never merged to main.
+
+### Milestones
+- [x] F1 Task CRUD
+- [x] F2 Three-column board
+- [x] F3 Drag-and-drop
+- [x] F4 Persistence + overdue highlight
