@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -20,6 +20,8 @@ import { resolveDragEnd } from "@/lib/dragEnd";
 
 export function Board() {
   const { tasks, dispatch } = useTasks();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [dialog, setDialog] = useState<DialogMode | null>(null);
   const today = todayISO();
 
@@ -94,11 +96,13 @@ export function Board() {
               key={c.id}
               id={c.id}
               label={c.label}
-              count={byStatus[c.id].length}
+              count={mounted ? byStatus[c.id].length : 0}
             >
-              {byStatus[c.id].map((t) => (
-                <TaskCard key={t.id} task={t} onOpen={openEdit} today={today} />
-              ))}
+              {mounted
+                ? byStatus[c.id].map((t) => (
+                    <TaskCard key={t.id} task={t} onOpen={openEdit} today={today} />
+                  ))
+                : null}
             </Column>
           ))}
         </div>
