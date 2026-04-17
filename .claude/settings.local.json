@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git --version)",
+      "Bash(npm --version)",
+      "Bash(git init *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(npx --yes create-next-app@14 . --ts --tailwind --app --eslint --src-dir=false --import-alias \"@/*\" --use-npm)",
+      "Read(//c/Projects/**)",
+      "Bash(npx --yes create-next-app@14 plan-scaffold --ts --tailwind --app --eslint --src-dir=false --import-alias \"@/*\" --use-npm)",
+      "Bash(rm -rf plan-scaffold)",
+      "Bash(npx --yes create-next-app@14 plan-scaffold --ts --tailwind --app --eslint --no-src-dir --import-alias \"@/*\" --use-npm)",
+      "Bash(npm install *)",
+      "Bash(npm run *)"
+    ]
+  }
+}

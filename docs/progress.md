@@ -18,6 +18,7 @@
 - [ ] F4: localStorage + overdue highlight
 - [ ] Build + lint pass
 - [ ] Manual QA pass
+- [x] Task 0: Project scaffold (feat/scaffold) — 2026-04-17
 
 ## Session log
 ### 2026-04-17 — Planning session
