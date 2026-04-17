@@ -21,6 +21,15 @@ function newId(): string {
   return `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
   const titleId = useId();
   const descId = useId();
@@ -34,11 +43,53 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLFormElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  // Capture opener, focus first field, restore on unmount.
   useEffect(() => {
+    previouslyFocused.current =
+      (document.activeElement as HTMLElement | null) ?? null;
     firstFieldRef.current?.focus();
+    return () => {
+      const el = previouslyFocused.current;
+      if (el && typeof el.focus === "function" && document.contains(el)) {
+        el.focus();
+      }
+    };
+  }, []);
+
+  // Escape + focus-trap keydown handling.
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusables = Array.from(
+        root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => !el.hasAttribute("disabled"));
+      if (focusables.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !root.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !root.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -81,6 +132,7 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
       }}
     >
       <form
+        ref={dialogRef}
         onSubmit={handleSubmit}
         className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg"
       >
