@@ -1,7 +1,7 @@
 # Progress Log
 
 ## Status snapshot
-- **Phase:** Planning complete / Implementation not started
+- **Phase:** Implementation complete / Manual QA pending
 - **Last updated:** 2026-04-17
 - **Active feature:** none yet
 
@@ -12,11 +12,11 @@
 - [x] Design spec
 - [x] Progress & handoff scaffolding
 - [ ] Implementation plan (next: writing-plans skill)
-- [ ] F1: Task CRUD
-- [ ] F2: Three-column board
-- [ ] F3: Drag-and-drop
-- [ ] F4: localStorage + overdue highlight
-- [ ] Build + lint pass
+- [x] F1: Task CRUD
+- [x] F2: Three-column board
+- [x] F3: Drag-and-drop
+- [x] F4: localStorage + overdue highlight
+- [x] Build + lint pass
 - [ ] Manual QA pass
 - [x] Task 0: Project scaffold (feat/scaffold) — 2026-04-17
 - [x] Task 1: Types + storage helpers (feat/storage) — 2026-04-17

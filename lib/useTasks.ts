@@ -34,17 +34,17 @@ export function tasksReducer(state: Task[], action: TasksAction): Task[] {
 
 export function useTasks() {
   const [tasks, dispatch] = useReducer(tasksReducer, []);
-  const hydrated = useRef(false);
+  const hasHydrated = useRef(false);
 
-  // Hydrate once on mount (client only).
   useEffect(() => {
     dispatch({ type: "hydrate", tasks: loadTasks() });
-    hydrated.current = true;
   }, []);
 
-  // Persist after hydration, on every change.
   useEffect(() => {
-    if (!hydrated.current) return;
+    if (!hasHydrated.current) {
+      hasHydrated.current = true;
+      return;
+    }
     saveTasks(tasks);
   }, [tasks]);
 
