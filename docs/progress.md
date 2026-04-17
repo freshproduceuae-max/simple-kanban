@@ -42,3 +42,4 @@
 - [x] Task 3: UI shell + overdue helper (feat/board-shell) — 2026-04-17
 - [x] Task 4: TaskCard + TaskDialog CRUD (feat/task-crud) — 2026-04-17
 - [x] Task 5: Drag-and-drop (feat/dnd) — 2026-04-17
+- [x] Task 6: Persistence hydration guard (feat/persistence) — 2026-04-17
