@@ -19,6 +19,7 @@
 - [ ] Build + lint pass
 - [ ] Manual QA pass
 - [x] Task 0: Project scaffold (feat/scaffold) — 2026-04-17
+- [x] Task 1: Types + storage helpers (feat/storage) — 2026-04-17
 
 ## Session log
 ### 2026-04-17 — Planning session
