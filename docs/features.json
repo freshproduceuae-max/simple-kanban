@@ -1,0 +1,72 @@
+{
+  "project": "simple-kanban",
+  "version": "0.1.0",
+  "generatedAt": "2026-04-17",
+  "featureCap": 4,
+  "features": [
+    {
+      "id": "F1",
+      "name": "Task CRUD",
+      "priority": "P0",
+      "status": "planned",
+      "description": "Create, edit, and delete tasks with a required title and optional description and due date. Tasks are the core unit of work on the board.",
+      "userStory": "As a solo planner, I want to create, edit, and delete tasks with a title, optional description, and optional due date, so that I can capture and maintain my personal to-dos.",
+      "acceptanceCriteria": [
+        "User can create a task with a required title; submission is blocked if title is empty or whitespace-only.",
+        "User can add an optional description and an optional dueDate stored as an ISO date string (YYYY-MM-DD).",
+        "User can edit any field of an existing task and changes are reflected immediately in the UI.",
+        "User can delete a task with a confirmation step, and it is removed from the board.",
+        "Each task has a stable unique id generated at creation time."
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "F2",
+      "name": "Three-column Kanban board",
+      "priority": "P0",
+      "status": "planned",
+      "description": "A fixed three-column board with columns 'To Do', 'In Progress', and 'Done' that renders all tasks grouped by their current status.",
+      "userStory": "As a solo planner, I want to see my tasks organized into To Do, In Progress, and Done columns, so that I can visualize the state of my work at a glance.",
+      "acceptanceCriteria": [
+        "Board renders exactly three columns in order: 'To Do', 'In Progress', 'Done'.",
+        "Each task appears in exactly one column based on its status field.",
+        "Columns display their name and the count of tasks within them.",
+        "Layout is mobile-first and scales cleanly up to desktop widths using Tailwind.",
+        "Empty columns show a subtle empty-state placeholder."
+      ],
+      "dependencies": ["F1"]
+    },
+    {
+      "id": "F3",
+      "name": "Drag-and-drop between columns",
+      "priority": "P0",
+      "status": "planned",
+      "description": "Move tasks between columns using @dnd-kit/core with full mouse, touch, and keyboard accessibility so status updates feel native.",
+      "userStory": "As a solo planner, I want to drag tasks between columns using mouse, touch, or keyboard, so that I can update task status quickly and accessibly.",
+      "acceptanceCriteria": [
+        "Dragging a task from one column to another updates its status to match the destination column.",
+        "Mouse, touch, and keyboard sensors from @dnd-kit/core are all enabled and functional.",
+        "Keyboard users can pick up, move, and drop a task using standard @dnd-kit keyboard interactions with visible focus.",
+        "The dragged task shows a clear visual overlay while in flight and the drop target column is highlighted.",
+        "Dropping outside any column cancels the move and leaves the task unchanged."
+      ],
+      "dependencies": ["F1", "F2"]
+    },
+    {
+      "id": "F4",
+      "name": "Persistence + overdue highlight",
+      "priority": "P0",
+      "status": "planned",
+      "description": "Persist the full board state to localStorage so it survives reloads, and visually highlight tasks whose dueDate is before today and whose status is not 'done'.",
+      "userStory": "As a solo planner, I want my board to survive reloads and show overdue tasks clearly, so that I never lose my plan and can immediately spot what is late.",
+      "acceptanceCriteria": [
+        "All task data and column assignments are written to localStorage on every mutation.",
+        "On app load, state is hydrated from localStorage; first-run users see an empty board without errors.",
+        "Tasks with a dueDate strictly before today's local date and status !== 'done' render with a distinct overdue visual style.",
+        "Overdue styling updates reactively when a task is moved to 'Done' or its dueDate is edited.",
+        "Corrupt or missing localStorage data is handled gracefully by falling back to an empty board."
+      ],
+      "dependencies": ["F1", "F2"]
+    }
+  ]
+}
