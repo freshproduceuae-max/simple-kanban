@@ -38,3 +38,5 @@
 - **Tick Milestones** (`- [x]`) as each item completes. Do not remove items.
 - **Update the Status snapshot** (Phase, Last updated, Active feature) at the start or end of each session.
 - **Record blockers or pending decisions** under the Blockers section; clear them when resolved.
+
+- [x] Task 3: UI shell + overdue helper (feat/board-shell) — 2026-04-17
