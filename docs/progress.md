@@ -40,3 +40,4 @@
 - **Record blockers or pending decisions** under the Blockers section; clear them when resolved.
 
 - [x] Task 3: UI shell + overdue helper (feat/board-shell) — 2026-04-17
+- [x] Task 4: TaskCard + TaskDialog CRUD (feat/task-crud) — 2026-04-17
