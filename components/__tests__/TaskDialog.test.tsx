@@ -10,6 +10,8 @@ const existing: Task = {
   description: "desc",
   dueDate: "2026-05-01",
   status: "in_progress",
+  priority: "medium",
+  tags: [],
   createdAt: 0,
 };
 
@@ -90,7 +92,9 @@ describe("TaskDialog", () => {
         onDelete={onDelete}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /delete this task/i }),
+    );
     expect(onDelete).not.toHaveBeenCalled();
     await userEvent.click(
       screen.getByRole("button", { name: /confirm delete/i }),

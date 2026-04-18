@@ -1,10 +1,31 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Board } from "../Board";
 
-describe("Board (shell)", () => {
-  it("renders three columns with correct labels", () => {
-    render(<Board />);
+describe("Board", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("shows an empty-state hero on first load", async () => {
+    await act(async () => {
+      render(<Board />);
+    });
+    expect(screen.getByText(/nothing planned/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /load demo data/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /new task/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders three columns once demo data is loaded", async () => {
+    await act(async () => {
+      render(<Board />);
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /load demo data/i }),
+    );
     expect(screen.getByRole("region", { name: "To Do" })).toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: "In Progress" }),
@@ -12,15 +33,12 @@ describe("Board (shell)", () => {
     expect(screen.getByRole("region", { name: "Done" })).toBeInTheDocument();
   });
 
-  it("shows empty-state placeholder in each column on first render", () => {
-    render(<Board />);
-    expect(screen.getAllByText("No tasks")).toHaveLength(3);
-  });
-
-  it("has an Add task button", () => {
-    render(<Board />);
+  it("has a New task button in the masthead", async () => {
+    await act(async () => {
+      render(<Board />);
+    });
     expect(
-      screen.getByRole("button", { name: /add task/i }),
+      screen.getByRole("button", { name: /new task/i }),
     ).toBeInTheDocument();
   });
 });

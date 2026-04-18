@@ -1,19 +1,45 @@
-import { STORAGE_KEY, type Task, type TaskStatus } from "./types";
+import {
+  STORAGE_KEY,
+  type Priority,
+  type Task,
+  type TaskStatus,
+} from "./types";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
+const PRIORITY_VALUES: Priority[] = ["low", "medium", "high"];
 
-function isTask(v: unknown): v is Task {
-  if (!v || typeof v !== "object") return false;
+function coerceTask(v: unknown): Task | null {
+  if (!v || typeof v !== "object") return null;
   const t = v as Record<string, unknown>;
-  return (
-    typeof t.id === "string" &&
-    typeof t.title === "string" &&
-    typeof t.description === "string" &&
-    (t.dueDate === null || typeof t.dueDate === "string") &&
-    typeof t.status === "string" &&
-    STATUSES.includes(t.status as TaskStatus) &&
-    typeof t.createdAt === "number"
-  );
+  if (
+    typeof t.id !== "string" ||
+    typeof t.title !== "string" ||
+    typeof t.description !== "string" ||
+    !(t.dueDate === null || typeof t.dueDate === "string") ||
+    typeof t.status !== "string" ||
+    !STATUSES.includes(t.status as TaskStatus) ||
+    typeof t.createdAt !== "number"
+  ) {
+    return null;
+  }
+  const priority: Priority =
+    typeof t.priority === "string" &&
+    PRIORITY_VALUES.includes(t.priority as Priority)
+      ? (t.priority as Priority)
+      : "medium";
+  const tags: string[] = Array.isArray(t.tags)
+    ? (t.tags.filter((x): x is string => typeof x === "string"))
+    : [];
+  return {
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    dueDate: t.dueDate as string | null,
+    status: t.status as TaskStatus,
+    priority,
+    tags,
+    createdAt: t.createdAt,
+  };
 }
 
 export function loadTasks(): Task[] {
@@ -23,7 +49,12 @@ export function loadTasks(): Task[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isTask);
+    const tasks: Task[] = [];
+    for (const item of parsed) {
+      const t = coerceTask(item);
+      if (t) tasks.push(t);
+    }
+    return tasks;
   } catch {
     return [];
   }

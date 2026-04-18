@@ -7,29 +7,47 @@ import type { TaskStatus } from "@/lib/types";
 type Props = {
   id: TaskStatus;
   label: string;
+  blurb: string;
   count: number;
+  index: number;
   children?: ReactNode;
 };
 
-export function Column({ id, label, count, children }: Props) {
+export function Column({ id, label, blurb, count, index, children }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <section
       ref={setNodeRef}
       aria-label={label}
-      className={`flex min-h-[12rem] flex-1 flex-col rounded-lg p-3 transition-colors ${
-        isOver ? "bg-slate-200" : "bg-slate-100"
+      style={{ animationDelay: `${index * 70}ms` }}
+      className={`rise flex min-h-[16rem] flex-col rounded-sm border border-rule/60 bg-paper-warm/40 p-5 transition-colors ${
+        isOver ? "border-terra/70 bg-paper-warm" : ""
       }`}
     >
-      <header className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">{label}</h2>
-        <span className="rounded bg-slate-200 px-2 text-xs text-slate-600">
+      <header className="mb-5 flex items-baseline justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <span className="small-caps font-mono text-[10px] font-medium text-ink-muted">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+          <div>
+            <h2 className="font-serif text-xl font-[600] leading-none text-ink">
+              {label}
+            </h2>
+            <p className="mt-1.5 font-serif text-[12px] italic text-ink-muted">
+              {blurb}
+            </p>
+          </div>
+        </div>
+        <span className="font-serif text-3xl font-[500] leading-none text-ink/30 tabular-nums">
           {count}
         </span>
       </header>
-      <div className="flex flex-col gap-2">
+      <div className="rule-dot mb-4" />
+      <div className="flex flex-col gap-3">
         {count === 0 ? (
-          <p className="text-sm text-slate-400">No tasks</p>
+          <p className="font-serif text-sm italic text-ink-muted">
+            — nothing here —
+          </p>
         ) : (
           children
         )}

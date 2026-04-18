@@ -10,6 +10,8 @@ const seeded: Task[] = [
     description: "",
     dueDate: null,
     status: "todo",
+    priority: "medium",
+    tags: [],
     createdAt: 1,
   },
 ];

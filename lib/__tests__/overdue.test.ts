@@ -8,6 +8,8 @@ const make = (over: Partial<Task>): Task => ({
   description: "",
   dueDate: null,
   status: "todo",
+  priority: "medium",
+  tags: [],
   createdAt: 0,
   ...over,
 });
