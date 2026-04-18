@@ -1,0 +1,294 @@
+{
+  "$schema": "./features.schema.json",
+  "version": "0.2.0",
+  "codename": "AI Planner",
+  "capturedAt": "2026-04-18",
+  "featureCap": 4,
+  "scopeLocked": {
+    "outOfScope": [
+      "multi-user",
+      "shared-boards",
+      "authentication",
+      "custom-columns",
+      "ai-chat-with-board",
+      "streaming-as-requirement",
+      "ai-edits-to-existing-tasks",
+      "persistent-interview-history"
+    ]
+  },
+  "dependencies": {
+    "needsUserApprovalBeforeAdding": [
+      {
+        "name": "@anthropic-ai/sdk",
+        "reason": "Claude SDK for server-side /api/plan routes",
+        "approxInstalledSizeKb": 900,
+        "runtimeOnly": true
+      }
+    ],
+    "inherited": [
+      "next@14",
+      "react@18",
+      "@dnd-kit/core",
+      "@dnd-kit/sortable",
+      "tailwindcss",
+      "vitest"
+    ]
+  },
+  "environment": {
+    "requiredServerEnv": ["ANTHROPIC_API_KEY"],
+    "optionalServerEnv": ["ANTHROPIC_MODEL_OVERRIDE"],
+    "clientEnv": [],
+    "notes": "No NEXT_PUBLIC_ prefix for any AI-related var. Client bundle must be grep-clean of the key name."
+  },
+  "features": [
+    {
+      "id": "F1",
+      "slug": "interview-modal",
+      "title": "AI Planner Interview Modal",
+      "summary": "Staged modal: describe → clarifying questions → preview. Editorial aesthetic, keyboard-accessible, ephemeral state.",
+      "priority": "must-have",
+      "status": "planned",
+      "dependsOn": [],
+      "stories": [
+        "US-1.1 Launch from masthead",
+        "US-1.2 Describe project freeform",
+        "US-1.3 Specific clarifying questions",
+        "US-1.4 Answer in one form",
+        "US-1.5 Cancel safely at any time",
+        "US-1.6 Full keyboard access"
+      ],
+      "acceptanceCriteria": [
+        "AC-1.1 'AI Planner' button in masthead; 'P' shortcut",
+        "AC-1.2 S1 textarea, min 20 chars before Continue enables",
+        "AC-1.3 S1 optional timeline field",
+        "AC-1.4 On Continue, call /api/plan/questions with composing state",
+        "AC-1.5 S2 renders 3-5 Qs as labeled textareas, fits 1440x900",
+        "AC-1.6 S2 answers are all optional",
+        "AC-1.7 Back navigation S2->S1 and S3->S2 preserves state",
+        "AC-1.8 Focus trap, Escape closes, focus returns",
+        "AC-1.9 Closing mid-interview adds nothing to board",
+        "AC-1.10 Model call failure shows error banner with Copy details"
+      ],
+      "files": [
+        "components/ai-planner/AIPlannerModal.tsx",
+        "components/ai-planner/DescribeStage.tsx",
+        "components/ai-planner/ClarifyStage.tsx",
+        "components/Board.tsx (masthead integration)"
+      ],
+      "contract": {
+        "clientApi": {
+          "openPlanner": "() => void",
+          "closePlanner": "() => void"
+        }
+      },
+      "estimate": {
+        "taskCount": 6,
+        "roughHours": 5
+      }
+    },
+    {
+      "id": "F2",
+      "slug": "generation-api",
+      "title": "Task Generation API",
+      "summary": "Server-side POST /api/plan that validates transcript, calls Claude with tool-use + prompt caching, validates output, returns DraftTask[].",
+      "priority": "must-have",
+      "status": "planned",
+      "dependsOn": [],
+      "stories": [
+        "US-2.1 <10s response",
+        "US-2.2 Project-specific tasks",
+        "US-2.3 API key never in browser",
+        "US-2.4 Single versioned prompt"
+      ],
+      "acceptanceCriteria": [
+        "AC-2.1 POST /api/plan accepts PlanRequest",
+        "AC-2.2 Server-only, key from env, never logged/returned",
+        "AC-2.3 Missing key -> 500 config_missing",
+        "AC-2.4 SDK call with pinned model + tool_choice + prompt caching",
+        "AC-2.5 Output validated by lib/ai/schema.ts",
+        "AC-2.6 Response includes {drafts, meta}",
+        "AC-2.7 p95 latency < 10s for 5 answers",
+        "AC-2.8 No server-side rate limit (client handles)",
+        "AC-2.9 Prompt constrains 6-20 tasks, priority discipline, sensible due dates/statuses"
+      ],
+      "files": [
+        "app/api/plan/route.ts",
+        "app/api/plan/questions/route.ts",
+        "app/api/plan/health/route.ts",
+        "lib/ai/prompts.ts",
+        "lib/ai/schema.ts",
+        "lib/ai/validate.ts",
+        "lib/ai/client.ts"
+      ],
+      "contract": {
+        "endpoints": [
+          {
+            "method": "POST",
+            "path": "/api/plan/questions",
+            "request": "QuestionsRequest",
+            "response": "QuestionsResponse | PlanErrorResponse"
+          },
+          {
+            "method": "POST",
+            "path": "/api/plan",
+            "request": "PlanRequest",
+            "response": "PlanResponse | PlanErrorResponse"
+          },
+          {
+            "method": "GET",
+            "path": "/api/plan/health",
+            "response": "{ ok: boolean }"
+          }
+        ]
+      },
+      "estimate": {
+        "taskCount": 7,
+        "roughHours": 6
+      }
+    },
+    {
+      "id": "F3",
+      "slug": "drafts-preview",
+      "title": "Drafts Preview & Bulk Insert",
+      "summary": "Editable list of draft tasks; inline title/priority/tags/dueDate edits; remove individual drafts; bulk add remaining to board; Undo window.",
+      "priority": "must-have",
+      "status": "planned",
+      "dependsOn": ["F2"],
+      "stories": [
+        "US-3.1 See all drafts at once",
+        "US-3.2 Inline edit",
+        "US-3.3 Remove unwanted",
+        "US-3.4 Bulk add",
+        "US-3.5 Know which column",
+        "US-3.6 Confirmation + Undo"
+      ],
+      "acceptanceCriteria": [
+        "AC-3.1 Scrollable preview with inline edit controls",
+        "AC-3.2 Remove button per row",
+        "AC-3.3 Sticky footer with counts",
+        "AC-3.4 Bulk add via dispatch per draft",
+        "AC-3.5 S4 confirmation with View board / Plan more",
+        "AC-3.6 10s Undo link",
+        "AC-3.7 Empty preview -> button disabled",
+        "AC-3.8 Inline validation (title, tags, dueDate)",
+        "AC-3.9 Ephemeral on Escape/backdrop"
+      ],
+      "files": [
+        "components/ai-planner/DraftsStage.tsx",
+        "components/ai-planner/AddedStage.tsx",
+        "components/ai-planner/DraftRow.tsx"
+      ],
+      "contract": {
+        "stateShape": "DraftTask[] + justInsertedIds: string[]"
+      },
+      "estimate": {
+        "taskCount": 5,
+        "roughHours": 4
+      }
+    },
+    {
+      "id": "F4",
+      "slug": "guardrails",
+      "title": "Secrets, Errors, and Cost Guardrails",
+      "summary": "Health check, graceful errors for no-key/rate/network, client-side daily rate limit, cost preview, bundle grep test.",
+      "priority": "must-have",
+      "status": "planned",
+      "dependsOn": ["F1", "F2"],
+      "stories": [
+        "US-4.1 Clear unavailable messaging",
+        "US-4.2 Rough cost preview",
+        "US-4.3 No accidental quota burn",
+        "US-4.4 No secrets in client bundle"
+      ],
+      "acceptanceCriteria": [
+        "AC-4.1 Disable button when health reports missing key",
+        "AC-4.2 /api/plan/health never returns the key",
+        "AC-4.3 S2 shows cost preview before Generate",
+        "AC-4.4 5 generations/24h client rate limit with ?dev=1 bypass",
+        "AC-4.5 401/403 -> 'Check API key' message",
+        "AC-4.6 429 -> 'Throttled, try again' message",
+        "AC-4.7 Network failure -> 1 auto-retry, then manual",
+        "AC-4.8 Bundle must not contain ANTHROPIC_API_KEY string",
+        "AC-4.9 No-store cache header"
+      ],
+      "files": [
+        "lib/ai/rate-limit.ts",
+        "lib/ai/cost.ts",
+        "app/api/plan/health/route.ts",
+        "scripts/check-bundle-secrets.mjs"
+      ],
+      "estimate": {
+        "taskCount": 5,
+        "roughHours": 3
+      }
+    }
+  ],
+  "testing": {
+    "targetTestCount": 50,
+    "existingBaseline": 35,
+    "newTestsByFeature": {
+      "F1": 4,
+      "F2": 6,
+      "F3": 4,
+      "F4": 3
+    },
+    "integrationTests": [
+      "Full interview flow with mocked Anthropic client",
+      "Invalid model output path",
+      "Rate limit path"
+    ]
+  },
+  "definitionOfDone": [
+    "All F1-F4 acceptance criteria pass",
+    "npm run lint green",
+    "npm run test green (>= 50 tests)",
+    "npm run build green with bundle grep clean",
+    "CI (.github/workflows/ci.yml) passes on PR",
+    "Vercel preview works with ANTHROPIC_API_KEY set",
+    "docs/v0.2/progress.md milestones all ticked",
+    "Final reviewer subagent reports no Critical/Important issues"
+  ],
+  "openQuestions": [
+    "Q1 npm dep approval",
+    "Q2 Model name pinning",
+    "Q3 Key source confirmation",
+    "Q4 Prompt caching confirmed yes",
+    "Q5 Undo window length",
+    "Q6 Inline description editing",
+    "Q7 Rate-limit bypass mechanism",
+    "Q8 Telemetry",
+    "Q9 Mobile stepper layout"
+  ],
+  "risks": [
+    {
+      "id": "R1",
+      "text": "Anthropic SDK breaking changes",
+      "likelihood": "low",
+      "mitigation": "Pin version, update in one PR"
+    },
+    {
+      "id": "R2",
+      "text": "Client-side key leakage",
+      "likelihood": "medium",
+      "mitigation": "Server-only routes, bundle grep test in CI"
+    },
+    {
+      "id": "R3",
+      "text": "Model hallucinates schema",
+      "likelihood": "medium",
+      "mitigation": "Tool-use with strict schema + server validator"
+    },
+    {
+      "id": "R4",
+      "text": "Silent cost creep",
+      "likelihood": "medium",
+      "mitigation": "Prompt caching + client rate limit + cost preview"
+    },
+    {
+      "id": "R5",
+      "text": "Scope creep to chat-with-board",
+      "likelihood": "high",
+      "mitigation": "Scope-lock in vision + PRD + this JSON"
+    }
+  ]
+}
