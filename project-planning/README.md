@@ -10,6 +10,7 @@ Helpful companion files:
 - `COPY-INSTRUCTIONS.md`
 - `project-kickoff-prompt.md`
 - `top-tier-safety-rules.md`
+- `response-header-convention.md` — **required** communication format for every AI-to-human response in projects that use this folder
 
 ## Purpose
 

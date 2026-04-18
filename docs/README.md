@@ -11,9 +11,10 @@ looking for is not in the canonical tree below, it is historical — check
 ## 1. Start here, in order
 
 1. [`../project-planning/START-HERE.md`](../project-planning/START-HERE.md) — the methodology skeleton the project follows (13 phases, 00 through 12).
-2. [`operating-model.md`](./operating-model.md) — how the AI team is organized for this project (locked: Hybrid).
-3. [`tracking/progress.md`](./tracking/progress.md) — current milestone state and session log (created at Phase 09; may be empty until then).
-4. [`tracking/claude-progress.txt`](./tracking/claude-progress.txt) — terse per-session notes for the next AI (created at Phase 09).
+2. [`../project-planning/response-header-convention.md`](../project-planning/response-header-convention.md) — **required** 2-line header on every reply to the Creative Director. Read this before your first message.
+3. [`operating-model.md`](./operating-model.md) — how the AI team is organized for this project (locked: Hybrid).
+4. [`tracking/progress.md`](./tracking/progress.md) — current milestone state and session log (created at Phase 09; may be empty until then).
+5. [`tracking/claude-progress.txt`](./tracking/claude-progress.txt) — terse per-session notes for the next AI (created at Phase 09).
 
 If any of those files do not yet exist, the project has not reached that phase
 yet — do not fabricate them, just proceed through the methodology.
