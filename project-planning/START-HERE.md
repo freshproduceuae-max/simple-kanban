@@ -23,6 +23,7 @@ you should interpret that as the instruction to use this folder as the operating
 7. Proceed through the rest of the phases in order.
 8. Do not skip ahead to implementation before the planning skeleton says it is time.
 9. Use `NEW-PROJECT-CHECKLIST.md` and `COPY-INSTRUCTIONS.md` as human-facing support documents when helpful.
+10. Read `response-header-convention.md` before your first reply to the Creative Director and apply it to every response for the rest of the project.
 
 ## Default Interpretation
 

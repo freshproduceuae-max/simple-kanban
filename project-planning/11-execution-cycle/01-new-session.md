@@ -13,6 +13,7 @@ Project rules:
 - Use the canonical docs workspace and document names established during bootstrap
 - If the project has an active phase/workstream docs subdirectory, use that as the execution workspace instead of older background docs unless CLAUDE.md says otherwise
 - Read the project's operating-model record before deciding how to structure agents or external AI involvement
+- Read `project-planning/response-header-convention.md` and apply it to every response you make to me in this session — 2-line header (Current / For) at the top, audience tag every time, prompt blocks fenced with copy markers
 - Do not write code until I approve the session plan
 - You are in agent team mode: use the TeamCreate tool by default to spin up multiple agents in parallel for repo reading, implementation, verification, and review work where appropriate
 - Every agent you create must receive the same scope, design, and process guardrails
