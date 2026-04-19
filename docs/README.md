@@ -29,12 +29,23 @@ when empty — populate them as the relevant methodology phase runs.
 | Path | Owner phase | Purpose |
 |---|---|---|
 | `operating-model.md` | 00 | AI team structure |
-| `prd/` | 07 | Product requirements |
-| `features/` | 08 | Machine-readable feature list |
-| `tracking/` | 09 | Progress + per-session handoff notes |
-| `plans/` | 11 | Per-task implementation plans (one file per plan) |
-| `releases/` | 12 | One record per shipped release |
+| `prd/vision.md` | 02 | **Full-product** vision across all releases |
+| `prd/` | 07 | Full-product PRD (if/when one is produced) |
+| `features/` | 08 | Machine-readable feature list (full-product rollup) |
+| `tracking/` | 09 | Cross-release progress + per-session handoff notes |
+| `releases/` | 02+ | **Per-release** planning + tracking (see below) |
+| `plans/` | 11 | Legacy / cross-cutting implementation plans |
 | `incidents/` | 12 | One record per production incident |
+
+### Release-scoped structure
+
+The project ships as a sequence of releases (**v0.4 → v0.5 → v0.6 → v1.0**).
+Each release owns its own PRD, feature list, plans, and progress record
+under [`releases/`](./releases/). See [`releases/README.md`](./releases/README.md)
+for the roster and per-release folder shape.
+
+Releases are shipped **serially**; within each release, up to 4 agents work
+in parallel under the Hybrid operating model.
 
 The `../project-planning/` folder itself is the methodology template and is
 read-only from a project-execution perspective — it does not contain live
