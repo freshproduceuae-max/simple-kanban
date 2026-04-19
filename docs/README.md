@@ -70,16 +70,23 @@ probably want to write something new under the canonical tree instead.
 
 ## 4. Rules that survive every session
 
-These come from `../CLAUDE.md` and the v0.1.0 scope lock, and they are not
-renegotiated at the start of each session:
+These are the **permanent** rules inherited from `../CLAUDE.md`. Release-specific scope locks (which capabilities exist in which release) live in [`prd/vision.md`](./prd/vision.md) and in each [`releases/<release>/README.md`](./releases/) — do not read them from this list.
 
 - Feature-branch + PR workflow. **Never commit to `main`.**
 - Ask before installing any npm package.
-- Three fixed columns (`todo`, `in_progress`, `done`). Custom columns are out of scope until an explicit scope change.
-- No auth, no multi-user backend, no Firebase, no backend database.
 - Any AI API key is **server-only**. Never use `NEXT_PUBLIC_` for AI-related env vars.
 - `npm run lint && npm run test && npm run build` must pass before opening any PR. CI re-runs the same.
 - Codex is the blocking PR reviewer. No merge without Codex approval.
+
+### v0.1.0 baseline (historical — superseded per release by the vision)
+
+These were the permanent commitments of the shipped v0.1.0. Several have been **scoped-retired** in later releases; the authoritative list of what is in/out per release is [`prd/vision.md`](./prd/vision.md) §8.
+
+- Three fixed columns (`todo`, `in_progress`, `done`) — still in force through v0.5. Revisit in v0.6 if multi-list demands it.
+- "No auth, no backend DB, no Firebase" — **scope-retired for v0.4** (Supabase Postgres memory store + single-user auth). Fully retired by v0.5 (tenant + RLS).
+- "Local-first data" — **retired** starting v0.4. Council memory is server-side.
+
+If a rule in this baseline contradicts the vision, the vision wins.
 
 ---
 
