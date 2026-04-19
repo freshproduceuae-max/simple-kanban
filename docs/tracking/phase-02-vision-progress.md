@@ -114,43 +114,44 @@ Everything in the shelf. Plan mode surfaces structured prompts as chips inside t
 
 ---
 
-## 3. Q7 -- Persistence + cost/latency budget (OPEN)
+### Q7 -- Persistence + cost/latency budget: A / B / A+B adaptive
 
-Three sub-questions. Answer each (or pick a bundle):
+**7a. Memory store: A -- Supabase Postgres.**
+- Matches v0.5's auth + RLS provider; no migration.
+- **Architectural commitment:** all persistence goes through a thin repository layer in `lib/persistence/`. Raw Supabase client is never called from Council code. This preserves a post-v1.0 enterprise tier (Oracle / SQL Server / on-prem Postgres) behind the same interface. Backend/Data agent owns the boundary.
 
-**7a. Where does the Consolidator's memory live?**
+**7b. Token budget: B -- moderate.**
+- Morning greeting <= 5k tokens in/out.
+- Plan session <= 40k.
+- Chat turn <= 10k.
+- Per-call cost instrumented from day one. Tighten in v1.0 when billing lands.
 
-- **A. Supabase Postgres** (matches v0.5's planned auth + RLS provider; single stack for v0.4->v0.5 migration).
-- **B. Vercel Postgres / Neon** (tighter Vercel integration; forces a later migration to Supabase in v0.5).
-- **C. Vercel KV (Redis)** (fast but lossy-by-design; wrong shape for growing memory).
-- **D. SQLite file in a Vercel blob** (cheap; doesn't survive concurrent writes; deprecated pattern).
-- **E.** Other.
+**7c. Latency ceiling: A + B, context-adaptive.**
+- **Cold start** (morning greeting on app open): B-tier -- first token <= 1s, full greeting streamed <= 6s. Cold serverless functions get this slack.
+- **Warm interactions** (chat turns, Plan mode follow-ups, Advise replies, any mid-session traffic): A-tier -- first token <= 500ms, full reply <= 3s. User is actively engaged; must feel snappy.
+- Switching rule: "warm" = the same user has pinged the Council within the last 5 minutes of session time.
 
-**Claude's recommendation: A.** v0.5 already commits to Supabase; adopting it in v0.4 avoids a forced migration six months later. The v0.4 schema is tiny (one user, a handful of tables) so the cost of going broad now is low.
-
-**7b. Token-spend budget per session type (soft ceiling, not a hard gate yet):**
-
-- **A. Tight:** morning greeting <= 2k tokens in/out; Plan session <= 15k; Chat turn <= 4k. Forces prompt discipline from day one.
-- **B. Moderate:** morning <= 5k; Plan <= 40k; Chat <= 10k. Lets the Council breathe while we learn what "good" looks like.
-- **C. Generous:** morning <= 10k; Plan <= 100k; Chat <= 25k. No real ceiling; revisit in v1.0.
-- **D.** Your own numbers.
-
-**Claude's recommendation: B.** Tight enough to catch runaway prompts in review; generous enough that the Council can do real synthesis. We'll instrument per-call token cost from day one and tighten in v1.0 when billing lands.
-
-**7c. Latency ceiling -- how long before the Council feels "not there"?**
-
-- **A.** First visible token within 500ms of app open; full morning greeting streamed within 3s.
-- **B.** First token within 1s; full greeting within 6s.
-- **C.** First token within 2s; full greeting within 10s.
-- **D.** Your own numbers.
-
-**Claude's recommendation: B.** A is achievable only with a warm serverless function + cached context; risky on cold starts. C feels sluggish for a companion. B is the sweet spot once Anthropic streaming + a pre-warmed prompt cache are in place.
+**Related parallel work (not blocking Phase 02):** marketing + audience plan for v0.4-v1.0 spawned as a separate agent on branch `chore/marketing-plan-v0.4`. Lands as a docs-only PR when ready.
 
 ---
 
-## 4. Queue for after Q7
+## 3. Q8 -- Failure mode (OPEN)
 
-- **Q8 Failure mode** -- what if the Researcher fails? What if the Critic disagrees with the Consolidator and nothing reconciles? What if the API is rate-limited mid-session?
+One agent fails mid-session. What happens to the user's experience?
+
+- **A. Fail-quiet.** If the Researcher errors, Consolidator synthesizes what it has without the research leg. If the Critic errors, the Consolidator's draft ships unreviewed. User never sees the failure. Status only visible in the "How I got here" reveal.
+- **B. Fail-visible, Council degrades gracefully.** Council ships a reduced reply + a single-line disclaimer: *"I couldn't reach the web this morning -- here's what I can tell you from memory alone."* No modals, no errors; just honest framing.
+- **C. Fail-hard.** Any agent error kills the turn; user sees a retry button. No half-answers.
+- **D. Per-agent policy.** Researcher failure -> fail-visible (B). Critic failure -> fail-quiet (A) but log loudly server-side because unreviewed drafts are a quality risk. Consolidator failure -> fail-hard (C) because without it there is no voice.
+
+**Claude's recommendation: D.** Per-agent policy matches the agents' real roles. Researcher failure is a content gap; owning it in the reply builds trust. Critic failure is a silent quality regression; the *user* shouldn't be punished, but the team needs an alert. Consolidator failure has no graceful fallback -- retry.
+
+**Rate-limit sub-case:** Anthropic API 429 mid-session. Recommended behavior: surface a soft pause ("I'm catching my breath -- one moment"), queue the turn client-side for up to 30s, retry with exponential backoff, then fall through to the per-agent policy above if it still fails.
+
+---
+
+## 4. Queue for after Q8
+
 - **Q9 Out-of-scope lock** -- what we explicitly REFUSE to build in v0.4 (to prevent the scope-creep tax from v0.2 carrying over). Candidates: multi-user, shared Councils, agent-runs-code, auto-apply board changes, cross-device memory sync, voice I/O.
 - **Q10 Done criteria** -- the measurable "v0.4 is shipped" conditions.
 
@@ -172,3 +173,4 @@ These belong in Phase 05 (Bootstrap) or Phase 07 (PRD), not Q5-Q10:
 - **2026-04-18 session:** opened Phase 02, ran Q1-Q4 with Creative Director. Captured all four answers above. Paused before Q5 for a session-wrap.
 - **2026-04-19 session (brief):** paused on Q5 re-fire. Creative Director said "come back later, keep tracking." This file written to persist state. No PR opened for this WIP branch -- just commit + push so a future session can `git checkout chore/phase-02-vision-wip` and resume.
 - **2026-04-19 session (resume):** resumed after context compaction. Captured Q5 (D -- inline scaffolding), Q6 (B -- reveal-on-demand with thinking-stream aesthetic + per-user mode choice; admin override deferred to v0.5). Locked agent-split decision: P1 for v0.4, P2 from v0.5 onward (recorded in `docs/operating-model.md`). Opened PR #7 on a separate branch for release-folder scaffolding. Fired Q7 (persistence + cost/latency, three sub-questions).
+- **2026-04-20 session:** captured Q7 -- Supabase Postgres behind a repository-layer boundary (preserves post-v1.0 enterprise DB swap), moderate token budget, adaptive latency (cold-start B-tier, warm-session A-tier). Spawned parallel marketing-plan agent on `chore/marketing-plan-v0.4`. Fired Q8 (failure mode).
