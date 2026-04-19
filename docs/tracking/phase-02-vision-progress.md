@@ -1,9 +1,9 @@
 # Phase 02 -- Vision Interview Progress (WIP)
 
-**Status:** Q1-Q8 locked. Q9 (out-of-scope lock) awaiting Creative Director answer.
+**Status:** Q1-Q9 locked. Q10 (done criteria) awaiting Creative Director answer. **Final interview question.**
 **Last active:** 2026-04-20
 **Branch:** `chore/phase-02-vision-wip`
-**Next action on resume:** If Q9 has been answered, append to section 2 and fire Q10. If not, re-fire Q9 using the options in section 3.
+**Next action on resume:** If Q10 has been answered, stop the interview and move to writing `docs/prd/vision.md`. If not, re-fire Q10 using the options in section 3.
 
 **Related PR in flight:** #7 (`chore/release-folder-scaffold`) — docs-only; release folder scaffold for v0.4 / v0.5 / v0.6 / v1.0. Safe to merge in parallel with this branch.
 
@@ -161,30 +161,64 @@ Everything in the shelf. Plan mode surfaces structured prompts as chips inside t
 
 ---
 
-## 3. Q9 -- Out-of-scope lock for v0.4 (OPEN)
+### Q9 -- Out-of-scope lock for v0.4: All ten refusals accepted
 
-What we explicitly REFUSE to build in v0.4, so the v0.2 scope-creep tax doesn't return.
+Explicitly NOT in v0.4:
 
-**Claude's recommended refusals for v0.4:**
+- Multi-user / shared Councils -- v0.5
+- Multiple task lists + Tracker view + task branching -- v0.6
+- Auto-apply board changes -- violates the Council Write Gate (Q4 lock); never in any release unless the rule itself is retired first
+- Agent-runs-code (Council spawns shell commands, edits files, opens PRs) -- no sandbox in v0.4; revisit with an explicit safety phase before any release enables it
+- Cross-device memory sync -- no mobile surface in v0.4
+- Voice I/O -- interesting, not core
+- Billing / quotas -- v1.0
+- Admin tenant-wide transparency toggle -- v0.5
+- DOM screenshots on error -- v0.5+ if failure-pattern data justifies the cost
+- Public boards / data export -- no use case in v0.4
 
-- Multi-user / shared Councils (-> v0.5)
-- Multiple task lists + Tracker view + task branching (-> v0.6)
-- Auto-apply board changes (violates the Council Write Gate from Q4)
-- Agent-runs-code (Council spawns shell commands, edits files, opens PRs; huge security surface without a sandbox)
-- Cross-device memory sync (no mobile app in v0.4)
-- Voice I/O (interesting, not core)
-- Billing / quotas (-> v1.0)
-- Admin toggles for tenant-wide transparency mode (-> v0.5)
-- DOM screenshots on error (-> v0.5+ if data justifies it; Q8 lock)
-- Public boards / data export
-
-**Answer shape:** "All of the above" / "All except X, Y" / "Also lock out Z".
+Any request to re-scope an item on this list mid-build requires a new phase-02 note and a merged PR before a line of code changes.
 
 ---
 
-## 4. Queue for after Q9
+## 3. Q10 -- Done criteria for v0.4 (OPEN)
 
-- **Q10 Done criteria** -- the measurable "v0.4 is shipped" conditions (likely includes: session history view shape, thinking-stream UI acceptance bar, Council Write Gate never violated, error-email pipeline proven in staging).
+The measurable conditions that say "v0.4 is shipped." Pick a tier (or mix lines from different tiers).
+
+**Tier A -- Minimum viable Council.** v0.4 ships when all are true:
+- All three modes work end-to-end (Plan produces memo + draft tasks; Advise reads board and returns recommendations; Chat persists across sessions).
+- Morning greeting renders on app open with thinking-stream aesthetic.
+- Bottom shelf collapses / expands; proposal cards tap-to-approve; Council Write Gate never bypassed in any test.
+- Consolidator memory writes + reads roundtrip through Supabase; data visible in a "Session history" view (read-only).
+- Error-email pipeline proven in staging (at least one real failure triggers a developer email with structured state).
+- `npm run lint && npm run test && npm run build` green. CI green on `main` after merge.
+- Deployed to Vercel production; Creative Director confirms one real Plan session, one real Advise session, one Chat session all felt right.
+
+**Tier B -- Tier A plus proof the agents actually add value.**
+- All Tier A acceptance gates, AND:
+- A recorded example where the Critic visibly changed the Consolidator's output (proof the Critic is not a stub).
+- A recorded example where the Researcher's internal memory recall surfaced something the user had said in a prior session (proof memory works).
+- Per-user transparency preference (A/B/C/D) round-trips through Supabase and the UI honors it.
+- Token / latency instrumentation dashboards exist (even if crude) so Q7 budgets can be verified.
+
+**Tier C -- Tier A + B plus polish that normally slips.**
+- All Tier A + B, AND:
+- Full session-history UI (not just read-only dump) -- searchable, filterable by mode.
+- Rate-limit soft-pause behavior tested under a deliberately throttled Anthropic tier-1 account.
+- Mobile layout sign-off (shelf expands correctly on iPhone SE width, 375px).
+- Onboarding first-run flow: new user hits the app, Council explains itself in < 60 seconds.
+
+**Claude's recommendation: Tier B.**
+- Tier A is "it runs" -- not enough to prove v0.4 is worth shipping over the v0.1.0 baseline.
+- Tier C pushes v0.4 toward a public-launch bar, which is v1.0's job.
+- Tier B is the right cutoff: it forces at least one recorded proof that the Council is doing what the vision claims, without demanding launch-grade polish that the product isn't ready for anyway.
+
+**Answer shape:** "Tier A" / "Tier B" / "Tier C" / "B plus these lines from C: ..." / your own list.
+
+---
+
+## 4. Queue for after Q10
+
+- **After Q10:** stop the interview. Write `docs/prd/vision.md` capturing the full product across v0.4 / v0.5 / v0.6 / v1.0 with explicit release-scope subsections. Supersede this branch with the Phase 02 PR.
 
 ---
 
@@ -204,4 +238,4 @@ These belong in Phase 05 (Bootstrap) or Phase 07 (PRD), not Q5-Q10:
 - **2026-04-18 session:** opened Phase 02, ran Q1-Q4 with Creative Director. Captured all four answers above. Paused before Q5 for a session-wrap.
 - **2026-04-19 session (brief):** paused on Q5 re-fire. Creative Director said "come back later, keep tracking." This file written to persist state. No PR opened for this WIP branch -- just commit + push so a future session can `git checkout chore/phase-02-vision-wip` and resume.
 - **2026-04-19 session (resume):** resumed after context compaction. Captured Q5 (D -- inline scaffolding), Q6 (B -- reveal-on-demand with thinking-stream aesthetic + per-user mode choice; admin override deferred to v0.5). Locked agent-split decision: P1 for v0.4, P2 from v0.5 onward (recorded in `docs/operating-model.md`). Opened PR #7 on a separate branch for release-folder scaffolding. Fired Q7 (persistence + cost/latency, three sub-questions).
-- **2026-04-20 session:** captured Q7 -- Supabase Postgres behind a repository-layer boundary (preserves post-v1.0 enterprise DB swap), moderate token budget, adaptive latency (cold-start B-tier, warm-session A-tier). Spawned parallel marketing-plan agent on `chore/marketing-plan-v0.4`. Captured Q8 -- per-agent failure policy + full session logging + structured-state error emails (no DOM screenshots in v0.4). Fired Q9 (out-of-scope lock).
+- **2026-04-20 session:** captured Q7 -- Supabase Postgres behind a repository-layer boundary (preserves post-v1.0 enterprise DB swap), moderate token budget, adaptive latency (cold-start B-tier, warm-session A-tier). Spawned parallel marketing-plan agent on `chore/marketing-plan-v0.4`. Captured Q8 -- per-agent failure policy + full session logging + structured-state error emails (no DOM screenshots in v0.4). Captured Q9 -- all ten refusals accepted. Fired Q10 (done criteria, final question).
