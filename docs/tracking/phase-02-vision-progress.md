@@ -1,9 +1,9 @@
 # Phase 02 -- Vision Interview Progress (WIP)
 
-**Status:** Q1-Q6 locked. Firing Q7 (persistence + cost/latency).
-**Last active:** 2026-04-19
+**Status:** Q1-Q8 locked. Q9 (out-of-scope lock) awaiting Creative Director answer.
+**Last active:** 2026-04-20
 **Branch:** `chore/phase-02-vision-wip`
-**Next action on resume:** If Q7 has been answered, append to section 2 and fire Q8. If the Creative Director has not yet answered Q7, re-fire it from section 3.
+**Next action on resume:** If Q9 has been answered, append to section 2 and fire Q10. If not, re-fire Q9 using the options in section 3.
 
 **Related PR in flight:** #7 (`chore/release-folder-scaffold`) — docs-only; release folder scaffold for v0.4 / v0.5 / v0.6 / v1.0. Safe to merge in parallel with this branch.
 
@@ -135,25 +135,56 @@ Everything in the shelf. Plan mode surfaces structured prompts as chips inside t
 
 ---
 
-## 3. Q8 -- Failure mode (OPEN)
+### Q8 -- Failure mode: D (per-agent policy) + session logging + structured-state error reports
 
-One agent fails mid-session. What happens to the user's experience?
+**Per-agent policy:**
+- **Researcher fails** -> fail-visible (B). Reduced reply with an honest one-line disclaimer ("I couldn't reach the web this morning -- here's what I can tell you from memory alone"). No modal.
+- **Critic fails** -> fail-quiet at the UI (A) + loud server-side alert. Unreviewed drafts ship, but the team is paged so the quality regression doesn't go unseen.
+- **Consolidator fails** -> fail-hard (C). No graceful fallback; user sees retry.
 
-- **A. Fail-quiet.** If the Researcher errors, Consolidator synthesizes what it has without the research leg. If the Critic errors, the Consolidator's draft ships unreviewed. User never sees the failure. Status only visible in the "How I got here" reveal.
-- **B. Fail-visible, Council degrades gracefully.** Council ships a reduced reply + a single-line disclaimer: *"I couldn't reach the web this morning -- here's what I can tell you from memory alone."* No modals, no errors; just honest framing.
-- **C. Fail-hard.** Any agent error kills the turn; user sees a retry button. No half-answers.
-- **D. Per-agent policy.** Researcher failure -> fail-visible (B). Critic failure -> fail-quiet (A) but log loudly server-side because unreviewed drafts are a quality risk. Consolidator failure -> fail-hard (C) because without it there is no voice.
+**Rate-limit sub-case (Anthropic 429 mid-session):**
+- Soft-pause UI ("I'm catching my breath -- one moment").
+- Client-side queue, up to 30s.
+- Exponential backoff on retry.
+- If retries exhaust, fall through to the per-agent policy above.
+- Note: these are *Anthropic's* rate limits (tier-based, e.g. Tier 1 ~50 req/min, ~40k input tokens/min on Sonnet), not limits we set. Multi-user quota enforcement that we define ourselves is deferred to v1.0 with billing.
 
-**Claude's recommendation: D.** Per-agent policy matches the agents' real roles. Researcher failure is a content gap; owning it in the reply builds trust. Critic failure is a silent quality regression; the *user* shouldn't be punished, but the team needs an alert. Consolidator failure has no graceful fallback -- retry.
+**Full session logging (v0.4 requirement):**
+- Every Council turn is persisted: Researcher input/output, Critic input/output, Consolidator synthesis, user reply. Timestamps + agent policy that fired.
+- Retained per-user in the same Supabase schema as Consolidator memory.
+- A "Session history" view surfaces logs to the user (exact shape TBD in Q10 / Phase 07).
 
-**Rate-limit sub-case:** Anthropic API 429 mid-session. Recommended behavior: surface a soft pause ("I'm catching my breath -- one moment"), queue the turn client-side for up to 30s, retry with exponential backoff, then fall through to the per-agent policy above if it still fails.
+**Error reporting to developer (v0.4 scope):**
+- On any agent failure or unhandled exception, the server emits a structured-state report to the developer email (provider TBD -- likely Resend).
+- Payload: user-agent, session ID, recent 3-5 Council turns, error stack trace, agent policy that fired, timestamp. No screenshots.
+- **DOM screenshots explicitly out of scope for v0.4.** Revisit in v0.5+ with real failure-pattern data driving the decision. Rationale: client bundle cost + privacy surface (captures anything on screen) isn't worth it for a solo-dev debugging loop when structured state covers 90% of cases.
 
 ---
 
-## 4. Queue for after Q8
+## 3. Q9 -- Out-of-scope lock for v0.4 (OPEN)
 
-- **Q9 Out-of-scope lock** -- what we explicitly REFUSE to build in v0.4 (to prevent the scope-creep tax from v0.2 carrying over). Candidates: multi-user, shared Councils, agent-runs-code, auto-apply board changes, cross-device memory sync, voice I/O.
-- **Q10 Done criteria** -- the measurable "v0.4 is shipped" conditions.
+What we explicitly REFUSE to build in v0.4, so the v0.2 scope-creep tax doesn't return.
+
+**Claude's recommended refusals for v0.4:**
+
+- Multi-user / shared Councils (-> v0.5)
+- Multiple task lists + Tracker view + task branching (-> v0.6)
+- Auto-apply board changes (violates the Council Write Gate from Q4)
+- Agent-runs-code (Council spawns shell commands, edits files, opens PRs; huge security surface without a sandbox)
+- Cross-device memory sync (no mobile app in v0.4)
+- Voice I/O (interesting, not core)
+- Billing / quotas (-> v1.0)
+- Admin toggles for tenant-wide transparency mode (-> v0.5)
+- DOM screenshots on error (-> v0.5+ if data justifies it; Q8 lock)
+- Public boards / data export
+
+**Answer shape:** "All of the above" / "All except X, Y" / "Also lock out Z".
+
+---
+
+## 4. Queue for after Q9
+
+- **Q10 Done criteria** -- the measurable "v0.4 is shipped" conditions (likely includes: session history view shape, thinking-stream UI acceptance bar, Council Write Gate never violated, error-email pipeline proven in staging).
 
 ---
 
@@ -173,4 +204,4 @@ These belong in Phase 05 (Bootstrap) or Phase 07 (PRD), not Q5-Q10:
 - **2026-04-18 session:** opened Phase 02, ran Q1-Q4 with Creative Director. Captured all four answers above. Paused before Q5 for a session-wrap.
 - **2026-04-19 session (brief):** paused on Q5 re-fire. Creative Director said "come back later, keep tracking." This file written to persist state. No PR opened for this WIP branch -- just commit + push so a future session can `git checkout chore/phase-02-vision-wip` and resume.
 - **2026-04-19 session (resume):** resumed after context compaction. Captured Q5 (D -- inline scaffolding), Q6 (B -- reveal-on-demand with thinking-stream aesthetic + per-user mode choice; admin override deferred to v0.5). Locked agent-split decision: P1 for v0.4, P2 from v0.5 onward (recorded in `docs/operating-model.md`). Opened PR #7 on a separate branch for release-folder scaffolding. Fired Q7 (persistence + cost/latency, three sub-questions).
-- **2026-04-20 session:** captured Q7 -- Supabase Postgres behind a repository-layer boundary (preserves post-v1.0 enterprise DB swap), moderate token budget, adaptive latency (cold-start B-tier, warm-session A-tier). Spawned parallel marketing-plan agent on `chore/marketing-plan-v0.4`. Fired Q8 (failure mode).
+- **2026-04-20 session:** captured Q7 -- Supabase Postgres behind a repository-layer boundary (preserves post-v1.0 enterprise DB swap), moderate token budget, adaptive latency (cold-start B-tier, warm-session A-tier). Spawned parallel marketing-plan agent on `chore/marketing-plan-v0.4`. Captured Q8 -- per-agent failure policy + full session logging + structured-state error emails (no DOM screenshots in v0.4). Fired Q9 (out-of-scope lock).
