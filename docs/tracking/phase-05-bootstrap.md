@@ -1,8 +1,9 @@
 # Phase 05 — Bootstrap (record)
 
-**Status:** Codex Chief Architect audit run 2026-04-20. Overall verdict **YELLOW**. Four must-resolve items before GREEN.
-**Branch for fixes:** `chore/phase-05-bootstrap-audit`.
-**Next action on resume:** land the YELLOW-fix PR (see "Triage" below), then Codex re-runs the audit; on GREEN, Phase 06 opens.
+**Status:** Closed **GREEN** on 2026-04-20 after a two-pass audit.
+**Branch for fixes:** `chore/phase-05-bootstrap-audit` (PR #11).
+**Resolution:** two fix commits — `89e59cb` (eight first-pass items) + `4298fb5` (two-layer boundary P2 follow-up). Codex re-audit returned GREEN, zero remaining items.
+**Next phase:** Phase 06 Brand Identity.
 
 ---
 
@@ -179,3 +180,32 @@ These are implementation-layer concerns. Not edits to the vision.
 - Docs-only; qualifies for the Codex carve-out.
 
 Once merged, Codex re-audits (same prompt, noting the changes). If verdict flips to GREEN, Phase 06 opens.
+
+---
+
+## 5. Fix-pass outcome
+
+### 5.1 First fix commit — `89e59cb`
+
+Addressed all eight items under §3.1 in a single docs-only commit. Files touched: `docs/README.md`, `docs/prd/vision.md`, `CLAUDE.md`, `docs/releases/v0.5-teams/README.md`, `project-planning/project-folder-scaffold.md`, plus new `docs/releases/<release>/plans/README.md` stubs for all four releases.
+
+### 5.2 Codex second-pass audit — two P2 items
+
+Codex accepted the fixes but flagged two remaining **P2** contradictions:
+
+1. `CLAUDE.md` line 86 said "Never call raw Supabase client from Council code; always go through `lib/persistence/`" — this implied `lib/persistence/**` is the only approved access path, contradicting the newly-introduced `lib/supabase/**` auth/session layer.
+2. `docs/prd/vision.md` §7 invariant said middleware consumes typed repository interfaces "never raw clients" — this banned the exact auth/session mechanism `lib/supabase/**` was introduced to own.
+
+### 5.3 Second fix commit — `4298fb5`
+
+Both contradictions resolved as two non-overlapping rules:
+- **App-data consumers** (Council, route handlers, server actions, React components) — go through `lib/persistence/**`.
+- **Auth/session consumers** (Next.js middleware, auth-facing route handlers) — go through `lib/supabase/**`.
+
+Outside those two directories, no file imports `@supabase/*`. CI enforces at Phase 10.
+
+### 5.4 Codex re-audit — GREEN
+
+Verdict returned 2026-04-20: every item closed, zero new issues introduced by the fix commits. Phase 05 is closed; Phase 06 Brand Identity may open.
+
+Key line from the verdict, for the record: *"The fix pass closes every item previously flagged in the YELLOW and follow-up P2 reviews, and the final two-layer Supabase rewrite removes the only remaining live contradiction."*
