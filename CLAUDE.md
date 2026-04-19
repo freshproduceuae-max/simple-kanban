@@ -83,7 +83,7 @@ Agent split: v0.4 is by domain (P1 deviation); v0.5+ snaps back to lifecycle (P2
 ## Project-Specific Never Do This
 
 - **Never bypass the Council Write Gate.** No board side-effect without an explicit user tap. Auto-apply is not a feature; it is a violation.
-- **Never call the raw Supabase client from Council code.** Always go through `lib/persistence/`.
+- **Never import `@supabase/*` from Council code.** Council talks to app data through `lib/persistence/**` repositories; it never touches a raw Supabase client. The only files in the repo that may import `@supabase/*` are those under `lib/persistence/**` (for repository implementations) and `lib/supabase/**` (client construction + auth/session plumbing). This rule does not forbid `lib/supabase/**` from existing — it scopes where raw clients are allowed.
 - **Never let the Council speak as three voices.** Researcher + Critic are backstage until a future release retires the rule.
 - **Never use `NEXT_PUBLIC_*` for any AI-related env var.** API keys are server-only.
 - **Never work ahead of the current release.** v0.4 finishes before v0.5 begins, and so on.

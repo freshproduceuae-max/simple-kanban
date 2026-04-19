@@ -143,7 +143,12 @@ Stored server-side in Supabase Postgres behind two separated layers:
 - **`lib/persistence/**`** owns all app data reads and writes (Council memory, board state, session logs). Exposes typed repository interfaces. This is the boundary that preserves a post-v1.0 enterprise DB swap (Oracle / SQL Server / on-prem Postgres).
 - **`lib/supabase/**`** owns Supabase client construction and auth/session plumbing. Nothing else in the codebase imports `@supabase/*`.
 
-**Invariant (to be enforced in CI at Phase 10 Scaffolding):** only files under `lib/persistence/**` and `lib/supabase/**` may import `@supabase/*`. Council, route handlers, server actions, React components, and middleware consume typed repository interfaces — never raw clients.
+**Invariant (to be enforced in CI at Phase 10 Scaffolding):** only files under `lib/persistence/**` and `lib/supabase/**` may import `@supabase/*`. Two separate rules, not one:
+
+- For **app data** (Council memory, board state, session logs): Council code, route handlers, server actions, and React components consume typed repository interfaces from `lib/persistence/**` — never raw Supabase clients, and never `lib/supabase/**` directly.
+- For **auth and session plumbing** (cookie handling, session refresh, `@supabase/ssr` middleware): Next.js middleware and auth-facing route handlers may import from `lib/supabase/**`. They must still not import `@supabase/*` directly.
+
+The shorthand: outside `lib/persistence/**` and `lib/supabase/**`, no file imports `@supabase/*`. App-data consumers go through `lib/persistence/**`; auth/session consumers go through `lib/supabase/**`. These paths do not overlap.
 
 Retained per user:
 - Modes used (histogram of Plan / Advise / Chat).
