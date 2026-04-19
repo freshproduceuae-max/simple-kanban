@@ -1,9 +1,11 @@
 # Phase 02 -- Vision Interview Progress (WIP)
 
-**Status:** PAUSED mid-interview. Waiting on Creative Director's answer to Q5.
+**Status:** Q1-Q6 locked. Firing Q7 (persistence + cost/latency).
 **Last active:** 2026-04-19
 **Branch:** `chore/phase-02-vision-wip`
-**Next action on resume:** Re-fire Q5 (input shape) with the options below; or, if the Creative Director answers directly, record Q5 and fire Q6.
+**Next action on resume:** If Q7 has been answered, append to section 2 and fire Q8. If the Creative Director has not yet answered Q7, re-fire it from section 3.
+
+**Related PR in flight:** #7 (`chore/release-folder-scaffold`) — docs-only; release folder scaffold for v0.4 / v0.5 / v0.6 / v1.0. Safe to merge in parallel with this branch.
 
 ---
 
@@ -87,24 +89,67 @@ Council always READS the board. Council WRITES nothing directly. Every change is
 
 ---
 
-## 3. Q5 -- Input shape (OPEN -- re-fire on resume)
+### Q5 -- Input shape: D (chat with inline scaffolding)
 
-How does the user *talk* to the Council?
+Everything in the shelf. Plan mode surfaces structured prompts as chips inside the chat thread -- "Timeline? Who's it for? What does done look like?" -- tappable, each opens a tiny inline input. Memo + drafts appear as rich card in the chat thread. Never leaves the shelf. Preserves the single-voice, single-surface commitment from Q3.
 
-- **A. Pure chat, always.** Everything in the shelf as natural language. Council infers intent (Plan vs Advise vs Chat). No separate forms or modals. Drafts appear as rich cards inline.
-- **B. Chat by default, focused workspace for Plan mode.** Most interaction is chat. When user signals Plan intent, shelf expands into a centered planning panel -- structured interview (describe -> 3-5 clarifying Qs -> memo + draft preview). Closes back to chat when done.
-- **C. Structured forms for Plan + Advise, chat only for Mode 3.** Modals for Plan/Advise, separate chat surface. Contradicts the one-voice commitment from Q3.
-- **D. Chat with lightweight inline scaffolding.** Everything in the shelf. Plan mode surfaces structured prompts as chips inside the chat -- "Timeline? Who's it for? What does done look like?" -- tappable, each opens a tiny inline input. Memo + drafts appear as rich card in the chat thread. Never leaves the shelf.
-- **E.** Creative Director's own shape.
+### Q6 -- Transparency: B (reveal-on-demand) with thinking-stream aesthetic + per-user mode choice
 
-**Claude's recommendation: D.** Preserves single-voice, single-surface from Q3; gives Plan mode scaffolding without a separate modal; the shelf becomes a universal canvas (messages, chips, draft cards, proposal cards -- all in conversation order). Matches the companion metaphor.
+**Default experience:** Consolidator speaks as a single voice. Each reply renders with a **thinking-stream aesthetic** -- typing cadence, live tokens appearing, subtle motion -- so the Council visibly *thinks* the way Claude/GPT do.
+
+**"How I got here" reveal:** small link at the bottom of each reply expands to show the Researcher's findings, the Critic's objections, and what the Consolidator changed in response. Audit trail available on demand, never forced.
+
+**Per-user mode preference** (Settings toggle, v0.4-scope):
+- **A** -- clean voice only, no reveal
+- **B** -- default, reveal-on-demand (shipped default)
+- **C** -- specialists inline on every reply
+- **D** -- Critic surfaces only when its objection wasn't resolved
+
+**Deferred to v0.5:** admin-level / tenant-wide forcing of a specific mode. In v0.4 there is no admin; the single user is the only configurator. v0.5's scope README will own the admin override.
+
+### Agent-split decision (locked at Q6)
+
+- **v0.4 Council -- P1 (by domain):** Backend/Data, Frontend/UX, AI/Council, Quality. Methodology deviation, recorded in `docs/operating-model.md`.
+- **v0.5 onward -- P2 (by lifecycle):** Repo reader, Implementation, Verification, Docs, Review support. Snaps back to the methodology default.
 
 ---
 
-## 4. Queue for after Q5
+## 3. Q7 -- Persistence + cost/latency budget (OPEN)
 
-- **Q6 Transparency** -- does the user see specialist output (Researcher's raw findings, Critic's objections), or only the Consolidator's synthesized voice? Reveal toggle? Always-hidden?
-- **Q7 Persistence + cost/latency budget** -- where does Consolidator memory live (sqlite? Vercel Postgres? KV? flat file in a blob store?), how much token-spend per morning check-in / per Plan session, latency ceiling for the Council to feel "there" on app open.
+Three sub-questions. Answer each (or pick a bundle):
+
+**7a. Where does the Consolidator's memory live?**
+
+- **A. Supabase Postgres** (matches v0.5's planned auth + RLS provider; single stack for v0.4->v0.5 migration).
+- **B. Vercel Postgres / Neon** (tighter Vercel integration; forces a later migration to Supabase in v0.5).
+- **C. Vercel KV (Redis)** (fast but lossy-by-design; wrong shape for growing memory).
+- **D. SQLite file in a Vercel blob** (cheap; doesn't survive concurrent writes; deprecated pattern).
+- **E.** Other.
+
+**Claude's recommendation: A.** v0.5 already commits to Supabase; adopting it in v0.4 avoids a forced migration six months later. The v0.4 schema is tiny (one user, a handful of tables) so the cost of going broad now is low.
+
+**7b. Token-spend budget per session type (soft ceiling, not a hard gate yet):**
+
+- **A. Tight:** morning greeting <= 2k tokens in/out; Plan session <= 15k; Chat turn <= 4k. Forces prompt discipline from day one.
+- **B. Moderate:** morning <= 5k; Plan <= 40k; Chat <= 10k. Lets the Council breathe while we learn what "good" looks like.
+- **C. Generous:** morning <= 10k; Plan <= 100k; Chat <= 25k. No real ceiling; revisit in v1.0.
+- **D.** Your own numbers.
+
+**Claude's recommendation: B.** Tight enough to catch runaway prompts in review; generous enough that the Council can do real synthesis. We'll instrument per-call token cost from day one and tighten in v1.0 when billing lands.
+
+**7c. Latency ceiling -- how long before the Council feels "not there"?**
+
+- **A.** First visible token within 500ms of app open; full morning greeting streamed within 3s.
+- **B.** First token within 1s; full greeting within 6s.
+- **C.** First token within 2s; full greeting within 10s.
+- **D.** Your own numbers.
+
+**Claude's recommendation: B.** A is achievable only with a warm serverless function + cached context; risky on cold starts. C feels sluggish for a companion. B is the sweet spot once Anthropic streaming + a pre-warmed prompt cache are in place.
+
+---
+
+## 4. Queue for after Q7
+
 - **Q8 Failure mode** -- what if the Researcher fails? What if the Critic disagrees with the Consolidator and nothing reconciles? What if the API is rate-limited mid-session?
 - **Q9 Out-of-scope lock** -- what we explicitly REFUSE to build in v0.4 (to prevent the scope-creep tax from v0.2 carrying over). Candidates: multi-user, shared Councils, agent-runs-code, auto-apply board changes, cross-device memory sync, voice I/O.
 - **Q10 Done criteria** -- the measurable "v0.4 is shipped" conditions.
@@ -126,3 +171,4 @@ These belong in Phase 05 (Bootstrap) or Phase 07 (PRD), not Q5-Q10:
 
 - **2026-04-18 session:** opened Phase 02, ran Q1-Q4 with Creative Director. Captured all four answers above. Paused before Q5 for a session-wrap.
 - **2026-04-19 session (brief):** paused on Q5 re-fire. Creative Director said "come back later, keep tracking." This file written to persist state. No PR opened for this WIP branch -- just commit + push so a future session can `git checkout chore/phase-02-vision-wip` and resume.
+- **2026-04-19 session (resume):** resumed after context compaction. Captured Q5 (D -- inline scaffolding), Q6 (B -- reveal-on-demand with thinking-stream aesthetic + per-user mode choice; admin override deferred to v0.5). Locked agent-split decision: P1 for v0.4, P2 from v0.5 onward (recorded in `docs/operating-model.md`). Opened PR #7 on a separate branch for release-folder scaffolding. Fired Q7 (persistence + cost/latency, three sub-questions).

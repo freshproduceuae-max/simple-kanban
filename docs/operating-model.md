@@ -15,3 +15,19 @@
     - Codex-as-blocking-reviewer is the one external specialist whose value is unambiguous: an independent reviewer that was not present during implementation catches the things an implementing author misses.
     - v0.1.0's editorial design shipped without Gemini; promoting Gemini from optional to required would be over-engineering.
 - Revision rule: This operating model is the default for now and may be changed later by explicit user decision. If v0.4 grows a dedicated brand / marketing surface, promote Gemini from optional to active.
+
+## Per-release agent split
+
+Up to four agents work in parallel **within** each release. Releases ship **serially** (v0.4 → v0.5 → v0.6 → v1.0). The split pattern varies:
+
+- **v0.4 Council — by domain (P1, methodology deviation).**
+    - Agent A: Backend / Data (API routes, persistence, env)
+    - Agent B: Frontend / UX (shelf, chat thread, chips, proposal cards, thinking-stream aesthetic)
+    - Agent C: AI / Council (Researcher + Consolidator + Critic prompts, orchestration, streaming)
+    - Agent D: Quality (tests, lint, build, Codex handoff prep)
+    - **Why deviate:** the Council is novel; concentrating orchestration + prompt design under one domain-owner prevents it from being squeezed by UI polish. Documented deviation from `project-planning/11-execution-cycle/team-mode-adaptation.md`.
+- **v0.5 Teams and later — by lifecycle (P2, methodology default).**
+    - Repo reader, Implementation, Verification, Docs, Review support (as prescribed in the methodology).
+    - Reason to snap back: v0.5/v0.6/v1.0 work is more mechanical; lifecycle roles scale better once the domain shape is known.
+
+Both splits operate under the Hybrid rules above — Claude Code is still the primary controller for each agent, and Codex is still the blocking PR reviewer.
