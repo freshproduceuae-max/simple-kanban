@@ -57,7 +57,7 @@ Three modes, all entered through the same bottom shelf:
 - Plan mode surfaces structured chips inline — *"Timeline? Who's it for? What does done look like?"* — tappable, each opens a tiny input. Memos and drafts appear as rich cards in the chat thread. Never leaves the shelf.
 - Every Council reply renders with a **thinking-stream aesthetic**: typing cadence, live tokens, subtle motion. The Council visibly *thinks* the way modern AI tools do.
 - A "How I got here" link expands each reply to reveal the Researcher's findings, the Critic's objections, and what the Consolidator changed in response. Audit trail on demand.
-- **Council Write Gate:** no side-effect on the board ever happens without an explicit user tap. Undo or autonomy is a v0.5+ conversation, not a v0.4 surprise.
+- **Council Write Gate (contract, not UX promise):** every board mutation requires a server-validated **approval artifact** — at minimum a `proposalId` plus a server-issued approval token. Council paths may *create proposals*, never task mutations. No board write endpoint accepts freeform AI output. CI enforces the import boundary (Council code cannot import board-write repositories) and the shape (mutation handlers reject payloads missing approval metadata). Undo or autonomy is a v0.5+ conversation, not a v0.4 surprise.
 
 ### v0.5 — Teams
 
@@ -138,7 +138,12 @@ Inherits v0.1.0's editorial simplicity. Extends it with ONE distinctive aestheti
 
 ### Council memory (new in v0.4)
 
-Stored server-side in Supabase Postgres **behind a thin repository layer in `lib/persistence/`**. Raw Supabase client is never called from Council code. This preserves a post-v1.0 enterprise tier (Oracle / SQL Server / on-prem Postgres) behind the same interface.
+Stored server-side in Supabase Postgres behind two separated layers:
+
+- **`lib/persistence/**`** owns all app data reads and writes (Council memory, board state, session logs). Exposes typed repository interfaces. This is the boundary that preserves a post-v1.0 enterprise DB swap (Oracle / SQL Server / on-prem Postgres).
+- **`lib/supabase/**`** owns Supabase client construction and auth/session plumbing. Nothing else in the codebase imports `@supabase/*`.
+
+**Invariant (to be enforced in CI at Phase 10 Scaffolding):** only files under `lib/persistence/**` and `lib/supabase/**` may import `@supabase/*`. Council, route handlers, server actions, React components, and middleware consume typed repository interfaces — never raw clients.
 
 Retained per user:
 - Modes used (histogram of Plan / Advise / Chat).
@@ -202,30 +207,46 @@ Any request to re-scope an item on the locks list mid-build requires a new phase
 - Chat turn ≤ 10k.
 - Per-call cost instrumented from day one.
 
-### Latency (v0.4, context-adaptive)
+### Latency (v0.4, aspirational at vision level)
 
-- **Cold start** (morning greeting on app open): first token ≤ 1s, full greeting ≤ 6s.
-- **Warm interactions** (chat turns, Plan follow-ups, Advise replies within 5 minutes of last ping): first token ≤ 500ms, full reply ≤ 3s.
+This document does **not** set hard millisecond targets. Numeric SLOs live in the v0.4 PRD (Phase 07) and are calibrated after the first thin slice is measured end-to-end against a real Anthropic tier, real Supabase region, and real Vercel cold starts.
+
+What the vision commits to is **what is kept out of the hot path** so that any reasonable SLO is reachable:
+
+- No live web research on the morning greeting — greeting reads from cached memory only.
+- No full session-log fetch before a reply — a bounded recent-turns window is loaded; older history is summarized.
+- No Critic pass on warm chat turns unless the Consolidator's output crosses a configurable risk threshold (Plan mode drafts always get the Critic; chit-chat does not).
+- No synchronous "How I got here" audit assembly — the audit trail is assembled on demand when the user expands it, not inline with the reply.
+- Cold-path work (memory consolidation, session summarization, embedding refresh) runs after the response is shipped, never before.
+
+The PRD will set actual first-token and full-reply targets separately for cold start (morning greeting) and warm interactions. Those targets are a PRD decision, not a vision commitment.
 
 ## 10. Done criteria for v0.4 (phased milestones)
 
-v0.4 ships as three tagged milestones inside the same `docs/releases/v0.4-council/` folder:
+v0.4 ships as three tagged milestones inside the same `docs/releases/v0.4-council/` folder. Only the final milestone reaches production:
 
-**v0.4-alpha — Tier A (minimum viable Council).** Internal only. Creative Director uses it daily.
+| Milestone | Git tag | Deploy target | Audience |
+|---|---|---|---|
+| v0.4-alpha | `v0.4.0-alpha` (prerelease) | Vercel **preview** | Creative Director only |
+| v0.4-beta | `v0.4.0-beta` (prerelease) | Vercel **preview** | Internal + invited friends |
+| v0.4 final | `v0.4.0` | Vercel **production** + merge to `main` | Public-ready (still single-user) |
+
+**v0.4-alpha — Tier A (minimum viable Council).** Internal only. Creative Director uses it daily on the preview URL.
 - All three modes end-to-end.
 - Morning greeting with thinking-stream aesthetic.
 - Bottom shelf collapse/expand; proposal-card tap-to-approve; Council Write Gate never bypassed.
 - Consolidator memory roundtrips through Supabase; read-only Session history view exists.
 - Error-email pipeline proven in staging.
-- Lint + test + build green; CI green on main; Vercel production deploy with one real session of each mode.
+- Lint + test + build green; release branch deploys to preview; prerelease tag `v0.4.0-alpha` cut from the release branch (not `main`).
 
-**v0.4-beta — Tier A + Tier B (Council proves value).** First outside users possible.
+**v0.4-beta — Tier A + Tier B (Council proves value).** First outside users possible; still on the preview URL.
 - Recorded example where the Critic visibly changed the Consolidator's output.
 - Recorded example where the Researcher surfaced a prior-session user utterance.
 - Per-user transparency preference (A/B/C/D) round-trips through Supabase; UI honors it.
 - Token / latency instrumentation dashboards (crude acceptable).
+- Prerelease tag `v0.4.0-beta` cut from the release branch.
 
-**v0.4 final release — Tier A + B + C (launch-grade).** Merges to `main`, tagged `v0.4.0`, deployed to production. v0.5 planning may start after this cut.
+**v0.4 final release — Tier A + B + C (launch-grade).** Only this milestone merges the release branch to `main`, tags `v0.4.0` (non-prerelease), and promotes to Vercel production. v0.5 planning may start after this cut.
 - Full searchable / filterable session-history UI.
 - Rate-limit soft-pause tested under a deliberately throttled tier-1 Anthropic account.
 - Mobile layout sign-off at iPhone SE width.

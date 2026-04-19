@@ -35,9 +35,11 @@ Agent split: v0.4 is by domain (P1 deviation); v0.5+ snaps back to lifecycle (P2
 ## Tech Stack
 
 - Next.js 14 App Router, TypeScript strict, Tailwind CSS (from global rules).
-- **Persistence:** Supabase Postgres, accessed only through `lib/persistence/` repository layer. Never call the raw Supabase client from Council code. This preserves a post-v1.0 enterprise-DB swap (Oracle / MSSQL / on-prem).
+- **Persistence:** Supabase Postgres. Two separated layers:
+    - `lib/persistence/**` — typed repositories for app data (Council memory, board state, session logs). Everything outside `lib/persistence/**` and `lib/supabase/**` consumes these repositories, never raw clients. This preserves a post-v1.0 enterprise-DB swap (Oracle / MSSQL / on-prem).
+    - `lib/supabase/**` — Supabase client construction + auth/session plumbing only. CI invariant (added at Phase 10): only files under `lib/persistence/**` and `lib/supabase/**` may import `@supabase/*`.
 - **AI:** `@anthropic-ai/sdk`. Server-side only. Streaming responses.
-- **Auth:** Supabase Auth (from v0.4 single-user; full role model in v0.5).
+- **Auth:** Supabase Auth via `@supabase/ssr` (the official App-Router helper; `@supabase/auth-helpers-nextjs` is deprecated and must not be introduced). From v0.4 single-user; full role model in v0.5.
 - **Email:** Resend (or equivalent) for structured-state error reports.
 - **Deployment:** Vercel. All AI env vars are server-only; never `NEXT_PUBLIC_*`.
 
@@ -57,7 +59,7 @@ Agent split: v0.4 is by domain (P1 deviation); v0.5+ snaps back to lifecycle (P2
 - **PR strategy:** planning phases land as small chore PRs. Implementation for v0.4 lands on `feat/v0.4-research-council` only after Phase 10 scaffolding is done.
 - **Codex carve-out (from Phase 01):** docs-only PRs (no changes under `app/`, `components/`, `lib/`, `scripts/`, `public/`, `package*.json`, `tsconfig.json`, `next.config.*`, `tailwind.config.*`, `.github/`, `vercel.json`) do not require a blocking Codex review unless the Creative Director explicitly asks.
 - **Token budgets (v0.4 soft ceilings):** morning greeting ≤ 5k, Plan session ≤ 40k, Chat turn ≤ 10k. Instrument per-call cost from day one.
-- **Latency (v0.4, context-adaptive):** cold-start ≤ 1s first token / ≤ 6s full greeting; warm ≤ 500ms first token / ≤ 3s full reply.
+- **Latency (v0.4, aspirational at vision level):** no hard ms targets set here. Real SLOs are set in the v0.4 PRD after the first thin slice is measured. What is committed: no live web research on the greeting, no full session-log fetch pre-reply, no Critic pass on warm chat turns below the risk threshold, no synchronous audit-trail assembly. See `docs/prd/vision.md` §9.
 - **Failure policy:** Researcher fail-visible, Critic fail-quiet + server alert, Consolidator fail-hard. Anthropic 429 → soft pause + 30s client queue + backoff. On any failure, structured-state email to developer.
 
 ## Voice + design
@@ -87,3 +89,7 @@ Agent split: v0.4 is by domain (P1 deviation); v0.5+ snaps back to lifecycle (P2
 - **Never work ahead of the current release.** v0.4 finishes before v0.5 begins, and so on.
 - **Never invent out-of-scope features.** If a v0.5/v0.6 capability shows up in a v0.4 code path, flag it and route back to the vision doc.
 - **Never edit `docs/archive/`.** It is historical. Write new material under the canonical tree instead.
+
+## Self-improvement rules (accumulate from corrections)
+
+- **Docs-only fix PRs driven by an independent audit ship directly.** When Codex (or any reviewer acting in the blocking-reviewer role) returns an audit with specific requested changes, the PR *is* the review artifact. Apply the fixes on the feature/chore branch, push, open the PR, and let the Creative Director review the diff. Do not insert a pre-flight plan-approval gate on top of the existing PR workflow — that is not in the global or project rules, and it slows the loop without adding safety. (Added 2026-04-20 after Phase 05 audit response.)

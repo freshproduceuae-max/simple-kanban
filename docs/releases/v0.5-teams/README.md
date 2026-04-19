@@ -4,10 +4,11 @@
 
 ## One-line scope
 
-Introduce accounts, tenants, and a three-role hierarchy
-(**Admin / Team Lead / Team Member**) on top of the v0.4 single-user
-Council, using **Supabase** for auth + Row-Level Security + persistent
-state.
+Expand v0.4's single-user Supabase auth into **multi-tenant auth** with a
+three-role hierarchy (**Admin / Team Lead / Team Member**). v0.4 already
+introduced Supabase auth and the persistence layer; v0.5 adds tenants,
+role enforcement, and Row-Level Security on top of that foundation —
+it does not introduce accounts from scratch.
 
 ## What is in (provisional)
 
@@ -34,9 +35,11 @@ state.
 
 ## Retired locks vs v0.4
 
-- "Single-user only" — retired in this release.
-- v0.1.0's "no auth" — formally retired here (was partially retired
-  for the v0.4 memory store; v0.5 makes the retirement complete).
+- "Single-user only" — retired in this release; v0.4's single-user
+  Supabase auth expands into multi-tenant auth.
+- v0.1.0's "no auth" — **fully** retired here (partially retired in
+  v0.4 for the Council memory store; v0.5 completes the retirement by
+  introducing the tenant + role model).
 
 ## Agent roster
 
