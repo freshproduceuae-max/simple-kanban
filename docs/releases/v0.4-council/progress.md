@@ -98,6 +98,14 @@ Newest on top. One line per working beat.
 
 - CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
 
+### 2026-04-21 — F03 Codex P1 fix — `?next=` round-trip restored
+
+- Codex P1: middleware set `?next=<path>`, callback honored it, but `sendMagicLink` sent a bare `/auth/callback` with no `next`, so every successful login landed on `/` regardless of the protected page the user was trying to reach. Real bug; broke the summary's claim.
+- Extracted `lib/auth/callback-url.ts#buildEmailRedirectTo(origin, next)` — pure helper, applies `safeNext`, omits the param entirely when the sanitized value is `/`. Unit-tested (5 scenarios incl. open-redirect payloads, encoding).
+- `SignInPage` now reads `searchParams.next` (sanitized via `safeNext`), passes it to `SignInForm` as a prop. Form emits a hidden `<input name="next">` alongside the email field. `sendMagicLink` reads that hidden field and feeds it to `buildEmailRedirectTo`, which re-sanitizes on the way out.
+- Added a render test asserting the hidden input is present with the expected value (`/` default, caller-supplied value preserved).
+- 136/136 tests pass (130 → 136, +5 callback-url + +2 form render). typecheck 0, lint clean, build compiles.
+
 ### 2026-04-21 — F02 GREEN, F03 open (magic-link auth)
 
 - PR #21 merged as `e1ae080` on main. Codex re-review clean.

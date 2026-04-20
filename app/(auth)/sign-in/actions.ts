@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { createServerClient } from '@/lib/supabase/server';
 import { normalizeEmail } from '@/lib/auth/email';
+import { buildEmailRedirectTo } from '@/lib/auth/callback-url';
 
 /**
  * F03 — magic-link sign-in action.
@@ -12,6 +13,11 @@ import { normalizeEmail } from '@/lib/auth/email';
  * happily mail a link to any address; the callback refuses non-allowed
  * emails after redemption. That keeps this action free of allowlist
  * coupling and lets F04 evolve independently.
+ *
+ * Preserves the `next` form field (set by the sign-in page from the URL
+ * `?next=` that middleware attaches on a protected-route redirect) so
+ * the callback can return the user to the page they were trying to
+ * reach. `buildEmailRedirectTo` sanitizes it.
  */
 export type SendMagicLinkResult =
   | { ok: true; email: string }
@@ -22,18 +28,23 @@ export async function sendMagicLink(formData: FormData): Promise<SendMagicLinkRe
   if (!normalized.ok) return normalized;
   const { email } = normalized;
 
+  const rawNext = formData.get('next');
+  const next = typeof rawNext === 'string' ? rawNext : null;
+
   const supabase = createServerClient();
 
-  // Build the callback URL from the current request's host, so the magic
-  // link points back at whichever environment the user signed in from
-  // (localhost, preview, or production).
+  // Build origin from the current request so magic links point back at
+  // whichever environment the user signed in from (localhost, preview,
+  // production). Supabase still verifies the redirect against its
+  // configured allow-list at the project level.
   const hdrs = headers();
   const host = hdrs.get('x-forwarded-host') ?? hdrs.get('host');
   const proto = hdrs.get('x-forwarded-proto') ?? 'https';
   if (!host) {
     return { ok: false, error: 'Could not resolve callback host.' };
   }
-  const emailRedirectTo = `${proto}://${host}/auth/callback`;
+  const origin = `${proto}://${host}`;
+  const emailRedirectTo = buildEmailRedirectTo(origin, next);
 
   const { error } = await supabase.auth.signInWithOtp({
     email,

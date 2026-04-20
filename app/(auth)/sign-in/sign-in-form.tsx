@@ -8,7 +8,7 @@ import { sendMagicLink, type SendMagicLinkResult } from './actions';
  * the submit button honest about loading state (global rule: every user
  * action needs loading, success, error states).
  */
-export function SignInForm() {
+export function SignInForm({ next = '/' }: { next?: string }) {
   const [result, setResult] = useState<SendMagicLinkResult | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -39,6 +39,9 @@ export function SignInForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      {/* Forwarded to `sendMagicLink`, re-sanitized server-side via
+          `buildEmailRedirectTo` before it reaches Supabase. */}
+      <input type="hidden" name="next" value={next} />
       <label className="block space-y-1">
         <span className="text-sm">Email</span>
         <input
