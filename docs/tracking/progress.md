@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`), F06 merged (#25 `4801ef1`), F07 merged (#26 `bc8a807`). F08 thinking-stream open on `feat/v0.4-F08-thinking-stream`.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`), F06 merged (#25 `4801ef1`), F07 merged (#26 `bc8a807`), F08 merged (#27 `c7ee63b`). F09/F10/F11 Council agent trio batched on `feat/v0.4-F09-F10-F11-council-agents` (PR #28 pending Codex review).
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,15 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F08 close (GREEN) + F09/F10/F11 open as batch PR (Council agent trio)
+
+- PR #27 merged (`c7ee63b`). F08 `passes: true`. Codex re-review clean after the iterator-cancellation fix (captured iterator, `return?.()` in cleanup).
+- Council agent trio opened on `feat/v0.4-F09-F10-F11-council-agents` as one PR with three sequential commits. CD instruction post-F08: "Keep scope tight to the Council agent trio only; no opportunistic refactors."
+  - **F09 Researcher (`f3a1a81`)** — `lib/council/shared/client.ts` (server-only factory, `ANTHROPIC_API_KEY`, `COUNCIL_MODEL='claude-sonnet-4-5'`) + `lib/council/researcher/index.ts`. One agent, two sources: `web_search_20250305` tool attached only in Plan mode; memory summaries always stitched via `CouncilMemoryRepository.listSummariesForUser(5)`. Per-session web cap 10 (PRD §7, in-memory Map). Persists via `appendTurn` with role=tool when `tool_use` blocks come back. Fail-visible: SDK error returns honest one-liner `RESEARCHER_FAIL_SENTENCE`. +7 tests.
+  - **F10 Consolidator (`f98d514`)** — `lib/council/consolidator/index.ts`. Returns `{stream: AsyncIterable<string>, done}` ready for F08's source mode. User turn persisted BEFORE acquisition; assistant turn persisted after stream exhaustion. Rule-based `classifyMode(Plan/Advise/Chat)` — no second Anthropic mock needed in tests. System prompt = voice stylebook + mode hint + researcher finding marked backstage. One retry on acquisition; `CONSOLIDATOR_FAIL_SENTENCE` on double fail; mid-stream errors append the sentence to the partial reply. Detached IIFE schedules session-pending summary via `memoryRepo.writeSummary`. +14 tests.
+  - **F11 Critic (`8142d78`)** — `lib/council/critic/index.ts` + upgraded `lib/council/shared/risk.ts`. Heuristic risk tagger (regex only, no SDK call) on every draft; Anthropic review only when risk ≥ threshold (default `medium`, env `COUNCIL_CRITIC_RISK_THRESHOLD`). Fail-quiet: on error `errorHook({failureClass, message, cause})` fires for F20 to wire into Resend; caller gets `{ran:false, risk, review:null}` so UI is unchanged. Persists critic turn; write failures swallowed. +15 tests.
+- typecheck 0, lint clean, 221/221 green, build clean. PR #28 waiting on Codex review.
 
 ### 2026-04-21 — F07 close (GREEN) + F08 open (thinking-stream)
 

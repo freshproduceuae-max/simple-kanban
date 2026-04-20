@@ -3,6 +3,46 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F09+F10+F11 open — Council agent trio batched (PR #28)
+- PR #27 (F08) merged c7ee63b. F08 passes:true. Codex re-review clean after iterator-cancellation fix (captured iterator via [Symbol.asyncIterator](), cleanup calls return?.()).
+- CD instruction post-F08: "Open the next batch as one PR for F09 + F10 + F11... three sequential commits, one feature per commit, each commit lands impl + tests + features.json pass flip. Keep scope tight to the Council agent trio only; no opportunistic refactors."
+- Branch: feat/v0.4-F09-F10-F11-council-agents.
+- Commit 1 — F09 Researcher (f3a1a81):
+  * lib/council/shared/client.ts (NEW) — getAnthropicClient() cached singleton, ANTHROPIC_API_KEY (throws if missing). AnthropicLike = Pick<Anthropic, 'messages'> is the DI seam. __resetAnthropicClientForTests() for suites that swap env. COUNCIL_MODEL = 'claude-sonnet-4-5'.
+  * lib/council/researcher/index.ts — research(input, deps) takes {userId, sessionId, mode, query, boardSnapshot?, webEnabled} + {client?, sessionRepo, memoryRepo, log?}. Returns {ok, text, toolCalls, tokensIn, tokensOut}.
+  * Web tool (web_search_20250305) attached only when webEnabled (Plan mode at call-site). Memory summaries always stitched via CouncilMemoryRepository.listSummariesForUser(5).
+  * Per-session web rate limit: 10 calls max (PRD §7, features.json F16). In-memory Map<sessionId, count>. 11th call returns calm one-liner "already reached this session's web-research limit", no Anthropic call made. __resetWebRateLimitForTests().
+  * Persists via SessionRepository.appendTurn with agent='researcher' and role='tool' when tool_use blocks present, 'assistant' otherwise. Turn-write failures logged + swallowed so user-facing path never blocked.
+  * Fail-visible: SDK error → {ok:false, text: RESEARCHER_FAIL_SENTENCE ("I couldn't check external sources this turn.")}. No throw.
+  * Tool descriptor cast locally — @anthropic-ai/sdk@0.39 doesn't fully type server-side web_search.
+  * Tests: +7. Memory-only path (no `tools` key); Plan mode web-tool attached; appendTurn called with correct agent+tokens; tool_use blocks captured into toolCalls + role='tool'; SDK error → fail-visible sentence + log; 10-calls cap → 11th is calm one-liner w/ no SDK call; turn-write failure swallowed.
+- Commit 2 — F10 Consolidator (f98d514):
+  * lib/council/consolidator/index.ts — consolidate(input, deps) returns {stream: AsyncIterable<string>, done: Promise<{text, tokensIn, tokensOut, mode}>}. Ready for F08's source-mode consumer directly — no SSE endpoint wrapper at this layer.
+  * classifyMode(userInput) rule-based (word lists). plan: 'plan','break down','roadmap','kick off',"let's start",'design','new project'. advise: 'advice','advise','should i','what do you think','take a look','review'. else chat. Deliberately low-tech so tests don't need second Anthropic mock.
+  * buildSystemPrompt(mode, researcherFindings) = COUNCIL_VOICE_STYLEBOOK + mode hint + "Researcher finding (backstage — do not cite by that name):\n${text}". Researcher/critic names never leak into user prompt.
+  * User turn persisted BEFORE client.messages.create is called (test enforces ordering). If that write fails we STILL reply — log only.
+  * Cold-path summary: void (async () => memoryRepo.writeSummary({kind:'session-pending', content:''}))() — detached IIFE, never blocks stream. F18 replaces with real queue.
+  * One retry on acquisition failure via attemptStream(). Second failure → failStream(deps, input, mode) which yields CONSOLIDATOR_FAIL_SENTENCE ("I'm not able to answer cleanly right now. Let's try again in a moment.") and persists that as assistant turn. Mid-stream errors yield ' ' + CONSOLIDATOR_FAIL_SENTENCE appended to the partial reply already yielded.
+  * Stream consumer reads three event shapes: message_start.message.usage.input_tokens, content_block_delta where delta.type==='text_delta' (text chunks), message_delta.usage.output_tokens. Local StreamEvent union — full @anthropic-ai/sdk types are richer than we need.
+  * Double-wrapped iterable: inner `passthrough` reads SDK events and yields text chunks while accumulating chunks[] + tokens; outer `wrapped` runs `for await (chunk of passthrough) yield chunk`, then after loop ends persists the assistant turn and resolves `done` — so the consumer can just `for await` the stream and both persistence + done-resolution happen automatically.
+  * Tests: +14. classifyMode (plan/advise/chat); user-turn write before stream; text_delta ordering + done resolves w/ joined text + usage + mode; assistant turn persisted with tokens; researcher findings woven into system prompt; one retry on acquisition fail; double-fail surfaces CONSOLIDATOR_FAIL_SENTENCE + persists; mid-stream error appends fail sentence; memoryRepo.writeSummary called with kind='session-pending'; summary write fail swallowed; user-turn write fail swallowed; explicit mode override bypasses classifier.
+- Commit 3 — F11 Critic (8142d78):
+  * lib/council/shared/risk.ts — classifyDraftRisk upgraded from the 'always-low' stub to a regex heuristic. HIGH patterns: delete|remove|wipe|drop|purge|destroy|erase, cancel|terminate|shutdown, "will do"|"i'll ship"|"shipping (tonight|today|now)"|"committing to", guarantee(d), "never/always do|ship|work|fail". MEDIUM: should|must|need to|have to|ought to, recommend|advise, dates d{1,2}[:/.]d{1,2}, $\d, \d+%, "first|second|third|next step|step \d". Else LOW. Empty/whitespace → LOW. No SDK call — runs on every draft.
+  * lib/council/critic/index.ts — critique(input, deps) takes {userId, sessionId, draft, threshold?} + {client?, sessionRepo, errorHook?, log?}. Returns {ran, risk, review, tokensIn, tokensOut}. risk always populated; review null when ran=false.
+  * Below threshold: fast path. No Anthropic call, no log row. {ran:false, risk, review:null, tokensIn:0, tokensOut:0}.
+  * At/above threshold: non-streaming Anthropic call with tight system prompt (bans self-reference 'the critic' and rewrites). extractText() pulls text blocks, joins, trims.
+  * Persists the critic turn via SessionRepository.appendTurn with agent='critic', role='assistant'. Write failures swallowed — by this point the user already saw their reply; there's nothing to block.
+  * Fail-quiet on SDK error: no throw, {ran:false, risk, review:null}. errorHook({failureClass, message, cause}) called. classifyError() maps to 'anthropic_429' | 'anthropic_error' | 'unknown' (best-effort; F20 will upgrade with its own classifier).
+  * Re-exports classifyDraftRisk + shouldDispatchCritic + readConfiguredThreshold for caller convenience.
+  * Tests: +15. classifyDraftRisk low/medium/high boundaries + empty; shouldDispatchCritic threshold arithmetic; readConfiguredThreshold env default + overrides; critique skips SDK when below threshold; dispatches + returns review + tokens at threshold; persists critic turn with correct agent/role/tokens; fail-quiet on 429 (errorHook called w/ failureClass='anthropic_429', no throw); unknown error → failureClass='unknown'; swallows session-write failures; explicit threshold override forces dispatch.
+- typecheck 0, lint clean, 221/221 tests green (all 30 test files), build clean (15 routes unchanged).
+- features.json F09+F10+F11 passes:true. Per-release ledger updated (PR #28 all three rows). Cross-release progress.md session log entry added.
+- Push + open PR #28 with Codex review request.
+- Note: F20 wiring — the critic's errorHook is the integration point. F12 Write Gate and F17 Advise will be the first callers that actually pipe the review into the transparency panel.
+- Note: memoryRepo/sessionRepo are still the NotImplemented stubs until F18 lands. The agents call them anyway; writes are swallowed via log callback so user-facing path never breaks. When F18 lands these agents just start persisting — no code change.
+
+---
+
 2026-04-21 F08 open — thinking-stream component
 - PR #26 (F07) merged bc8a807. F07 passes:true. Codex re-review clean after strip-click fix.
 - F08 on feat/v0.4-F08-thinking-stream. Replaced stub with real impl:

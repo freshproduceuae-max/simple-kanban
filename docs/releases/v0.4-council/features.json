@@ -158,7 +158,7 @@
         "Persist tool calls + findings into council_turns",
         "Fail-visible: on error, return an honest one-liner to the Consolidator"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F10",
@@ -176,7 +176,7 @@
         "Schedule session-end summary write to the cold-path queue",
         "Fail-hard: retry once, then surface failure sentence"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F11",
@@ -192,7 +192,7 @@
         "Dispatch Critic only when risk >= threshold (env COUNCIL_CRITIC_RISK_THRESHOLD default 'medium')",
         "Fail-quiet to UI; emit structured-state email via F17 on failure"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F12",

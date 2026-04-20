@@ -27,9 +27,9 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F06 | Apply canonical v0.4 design tokens to existing UI | #25 | ☑ |
 | F07 | Bottom-shelf scaffold | #26 | ☑ |
 | F08 | Thinking-stream component | #27 | ☑ |
-| F09 | Researcher agent (web + memory, fail-visible) | — | ☐ |
-| F10 | Consolidator agent (streaming, fail-hard) | — | ☐ |
-| F11 | Critic agent (risk-threshold dispatch, fail-quiet) | — | ☐ |
+| F09 | Researcher agent (web + memory, fail-visible) | #28 | ☑ |
+| F10 | Consolidator agent (streaming, fail-hard) | #28 | ☑ |
+| F11 | Critic agent (risk-threshold dispatch, fail-quiet) | #28 | ☑ |
 | F12 | Council Write Gate server contract | — | ☐ |
 | F13 | Proposal card UI + tap-to-approve flow | — | ☐ |
 | F14 | Morning greeting flow (memory-only, ≤ 200 chars) | — | ☐ |
@@ -93,6 +93,16 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-21 — F08 close (GREEN) + F09/F10/F11 opened as batch PR
+
+- PR #27 merged (`c7ee63b`). F08 `passes: true`. Codex re-review clean after the iterator-cancellation fix (captured iterator via `[Symbol.asyncIterator]()`, cleanup calls `return?.()`).
+- Council agent trio opens on `feat/v0.4-F09-F10-F11-council-agents` as one PR with three sequential commits — CD instruction after F08 merge: "Keep scope tight to the Council agent trio only; no opportunistic refactors."
+- **F09 Researcher (`f3a1a81`)** — `lib/council/shared/client.ts` + `lib/council/researcher/index.ts`. `research(input, deps)` runs one Anthropic call, attaches the `web_search_20250305` tool only in Plan mode, pulls 5 recent memory summaries via `CouncilMemoryRepository.listSummariesForUser`, persists the turn with `agent='researcher'` and `role='tool'|'assistant'` depending on whether `tool_use` blocks came back. Per-session web-call cap at 10 (PRD §7) via in-memory `Map<sessionId, count>` + `__resetWebRateLimitForTests()`. Fail-visible: any SDK error returns `ok:false` with the honest one-liner `RESEARCHER_FAIL_SENTENCE`. Turn-write failures swallowed so the user-facing path can't be blocked. 7 tests.
+- **F10 Consolidator (`f98d514`)** — `lib/council/consolidator/index.ts`. `consolidate(input, deps)` returns `{ stream: AsyncIterable<string>, done: Promise }`. User turn written BEFORE stream acquisition. `classifyMode(userInput)` is a rule-based Plan/Advise/Chat classifier (word lists) — deliberately low-tech so offline tests don't need a second Anthropic mock. `buildSystemPrompt` stitches `COUNCIL_VOICE_STYLEBOOK` + a mode hint + the Researcher finding marked backstage (never cited as "the researcher"). One retry on acquisition failure, then `failStream()` yields `CONSOLIDATOR_FAIL_SENTENCE`. Mid-stream errors append that sentence to whatever partial reply the consumer already saw. Session-end summary scheduled best-effort via `memoryRepo.writeSummary({ kind: 'session-pending' })` in a detached IIFE. 14 tests.
+- **F11 Critic (`8142d78`)** — `lib/council/critic/index.ts` + upgraded `lib/council/shared/risk.ts`. `critique(input, deps)` uses the heuristic `classifyDraftRisk` (regex-only, no SDK call) on every draft; only when risk ≥ threshold (default 'medium', env `COUNCIL_CRITIC_RISK_THRESHOLD`) does it spend a real Anthropic call. Fail-quiet: on error `errorHook` fires with a `failureClass` tag (F20 will wire Resend to it) and the caller gets `{ran:false, risk, review:null}` — no UI impact. Persists the critic turn with `agent='critic'`; write failures swallowed. 15 tests.
+- typecheck 0, lint clean, 221/221 tests green, build clean. 15 routes unchanged.
+- PR #28 opened; waiting for Codex review before merge.
 
 ### 2026-04-21 — F07 close (GREEN) + F08 open (thinking-stream)
 
