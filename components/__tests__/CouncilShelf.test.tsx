@@ -81,6 +81,25 @@ describe('CouncilShelf (F07)', () => {
     }
   });
 
+  it('header strip is a hit target — clicking the label toggles disclosure (§6.2)', () => {
+    render(<CouncilShelf />);
+    const toggle = screen.getByRole('button', { name: /open|close/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Click the Fraunces label, not the button, to prove the whole
+    // strip responds.
+    fireEvent.click(screen.getByText('Council'));
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('clicking the toggle button fires exactly once (no strip double-fire)', () => {
+    render(<CouncilShelf />);
+    const toggle = screen.getByRole('button', { name: /open|close/i });
+    fireEvent.click(toggle);
+    // One click → one state flip (true). If the strip handler also
+    // fired on bubble, we would be back to false.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('shows the placeholder line when no children are provided', () => {
     render(<CouncilShelf initialOpen />);
     expect(
