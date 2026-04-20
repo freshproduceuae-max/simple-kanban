@@ -11,14 +11,20 @@ type Props = {
   today?: string;
 };
 
+/**
+ * Task card — reads as an index card per design-system.md §8.1: surface
+ * card tone, default border, resting shadow that deepens on hover.
+ * Overdue surfaces a terra accent instead of a raw red, per the voice
+ * contract that avoids alarm and blame.
+ */
 export function TaskCard({ task, onOpen, today }: Props) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
   const overdue = isOverdue(task, today);
   const base =
-    "w-full rounded border bg-white p-2 text-left shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400";
-  const borderCls = overdue ? "border-red-500" : "border-slate-200";
-  const dateCls = overdue ? "text-red-600" : "text-slate-500";
+    "w-full rounded border bg-surface-card p-space-3 text-left shadow-card-rest transition-shadow duration-duration-fast ease-ease-standard hover:shadow-card-hover focus:outline-none focus:shadow-ring-focus";
+  const borderCls = overdue ? "border-accent-terra-500" : "border-border-default";
+  const dateCls = overdue ? "text-accent-terra-700" : "text-ink-500";
   const style = {
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.6 : 1,
@@ -34,9 +40,9 @@ export function TaskCard({ task, onOpen, today }: Props) {
       {...attributes}
       {...listeners}
     >
-      <div className="text-sm font-medium text-slate-800">{task.title}</div>
+      <div className="text-size-sm font-weight-medium text-ink-900">{task.title}</div>
       {task.dueDate ? (
-        <div className={`mt-1 text-xs ${dateCls}`}>{task.dueDate}</div>
+        <div className={`mt-space-1 font-family-mono text-size-xs ${dateCls}`}>{task.dueDate}</div>
       ) : null}
     </button>
   );

@@ -3,6 +3,21 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F06 open — canonical v0.4 design tokens
+- PR #24 (F05) merged 359ea3a. F05 passes:true. Codex re-review clean after the boundary fix.
+- F06 on feat/v0.4-F06-design-tokens. Pure token pass, no behaviour change:
+  * app/globals.css rewritten — full canonical token set from design-system.md §4 color (13), §5 typography (11), §6 spacing (8), §7 surfaces/elevation (5), §9 motion (5). Font family vars reference --font-fraunces / --font-ibm-plex-sans / --font-jetbrains-mono. html/body now use --color-surface-canvas + --color-ink-900 + --font-family-body.
+  * app/layout.tsx rewritten — next/font/google registers Fraunces (display, 400/500/600 + italic), IBM_Plex_Sans (body, 400/500), JetBrains_Mono (mono, 400/500). All three .variable handles applied on <html>. display: 'swap' everywhere.
+  * Token pass applied across components/{Board,Column,TaskCard,TaskDialog}.tsx and app/(auth)/sign-in/{page,sign-in-form}.tsx. Surfaces → surface-canvas/shelf/pressed/card. Text → ink-900/700/500. Borders → border-default. Accents → accent-terra (overdue/error), accent-moss (success-adjacent), accent-plum (reserved).
+  * Overdue styling moved red-500 → accent-terra-500/700. TaskCard.test.tsx updated to match (border-red-500 → border-accent-terra-500).
+  * Modal scrim kept as bg-black/40 (convention, not a brand colour — alpha modifiers don't work on CSS-var-backed tokens).
+- Tests +46 → 169/169:
+  * app/__tests__/design-tokens.test.ts — 45 it.each over CANONICAL_TOKENS asserting each token is *defined* (regex /<name>\s*:/) in globals.css, plus legacy-name ban (--paper / --ink / --terra must not appear).
+  * app/__tests__/layout-fonts.test.tsx — 3 source-level assertions: next/font/google import present, three CSS variable names exposed, all three .variable handles interpolated on <html>. Source read via fs.readFileSync — no next/font runtime needed.
+- typecheck 0, lint clean, build compiles, 169/169.
+
+---
+
 2026-04-21 F05 Codex P1 fix — boundary restored
 - Codex P1: lib/board/get-task-repository.ts was building the repo from createServerClient inside the board layer. Functionally OK but it reintroduced the F01 coupling and set a bad precedent for product code. Real blocker.
 - Moved factory to lib/persistence/server.ts#getTaskRepository(). Deleted lib/board/get-task-repository.ts.

@@ -2,22 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * v0.4 Council design tokens (F06).
+ * Canonical definitions from `docs/design-system/design-system.md`.
+ * Do not ad-hoc alter values here — updates flow from the design-system
+ * doc and land in a release PR.
+ *
+ * Light mode is canonical for v0.4; dark mode is deferred post-v0.4
+ * (design-system.md §4.4).
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* §4.2 Color System */
+  --color-surface-canvas: #f7f3ec;
+  --color-surface-shelf: #efe9df;
+  --color-surface-pressed: #e6dfd1;
+  --color-surface-card: #fffdf8;
+
+  --color-ink-900: #1b1a17;
+  --color-ink-700: #3b3a34;
+  --color-ink-500: #6b6a61;
+
+  --color-border-default: #d6cfbf;
+
+  --color-accent-terra-700: #b34b2b;
+  --color-accent-terra-500: #d67a58;
+  --color-accent-moss-700: #5a6b3c;
+  --color-accent-moss-300: #b7c39a;
+  --color-accent-plum-700: #5c3a53;
+
+  /* §5.4 Typography.
+   * Family values are injected at runtime from next/font via <html>
+   * so the fallback chain still applies if a font file fails to load. */
+  --font-family-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-family-body: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* §6.1 Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* §7 Surfaces And Elevation */
+  --shadow-card-rest: 0 1px 0 rgba(27, 26, 23, 0.03), 0 6px 20px -12px rgba(27, 26, 23, 0.18);
+  --shadow-card-hover: 0 1px 0 rgba(27, 26, 23, 0.04), 0 12px 28px -14px rgba(27, 26, 23, 0.28);
+  --shadow-proposal: 0 4px 12px -4px rgba(27, 26, 23, 0.12);
+  --shadow-modal: 0 18px 42px -20px rgba(27, 26, 23, 0.32);
+  --ring-focus: 0 0 0 2px rgba(179, 75, 43, 0.22);
+
+  /* §9.1 Motion */
+  --motion-duration-fast: 150ms;
+  --motion-duration-medium: 300ms;
+  --motion-duration-slow: 380ms;
+  --motion-ease-editorial: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-ease-standard: ease-out;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-surface-canvas);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-surface-canvas);
+  color: var(--color-ink-900);
+  font-family: var(--font-family-body);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-regular);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @layer utilities {

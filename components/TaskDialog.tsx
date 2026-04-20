@@ -126,7 +126,7 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
       role="dialog"
       aria-modal="true"
       aria-label={existing ? "Edit task" : "New task"}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-space-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -134,13 +134,13 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
       <form
         ref={dialogRef}
         onSubmit={handleSubmit}
-        className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg"
+        className="w-full max-w-md rounded-lg border border-border-default bg-surface-card p-space-6 shadow-modal"
       >
-        <h2 className="mb-3 text-lg font-semibold">
+        <h2 className="mb-space-3 font-family-display text-size-lg font-weight-semibold text-ink-900">
           {existing ? "Edit task" : "New task"}
         </h2>
 
-        <label htmlFor={titleId} className="block text-sm font-medium">
+        <label htmlFor={titleId} className="block text-size-sm font-weight-medium text-ink-700">
           Title
         </label>
         <input
@@ -148,22 +148,24 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
           ref={firstFieldRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="mb-2 w-full rounded border border-slate-300 p-1.5"
+          className="mb-space-2 w-full rounded border border-border-default bg-surface-card p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
         />
-        {error ? <p className="mb-2 text-sm text-red-600">{error}</p> : null}
+        {error ? (
+          <p className="mb-space-2 text-size-sm text-accent-terra-700">{error}</p>
+        ) : null}
 
-        <label htmlFor={descId} className="block text-sm font-medium">
+        <label htmlFor={descId} className="block text-size-sm font-weight-medium text-ink-700">
           Description
         </label>
         <textarea
           id={descId}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="mb-2 w-full rounded border border-slate-300 p-1.5"
+          className="mb-space-2 w-full rounded border border-border-default bg-surface-card p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
           rows={3}
         />
 
-        <label htmlFor={dateId} className="block text-sm font-medium">
+        <label htmlFor={dateId} className="block text-size-sm font-weight-medium text-ink-700">
           Due date
         </label>
         <input
@@ -171,35 +173,35 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
           type="date"
           value={dueDate}
           onChange={(e) => setDueDate(e.target.value)}
-          className="mb-2 w-full rounded border border-slate-300 p-1.5"
+          className="mb-space-2 w-full rounded border border-border-default bg-surface-card p-space-2 font-family-mono text-ink-900 focus:outline-none focus:shadow-ring-focus"
         />
 
-        <label className="block text-sm font-medium">Status</label>
+        <label className="block text-size-sm font-weight-medium text-ink-700">Status</label>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as TaskStatus)}
-          className="mb-4 w-full rounded border border-slate-300 p-1.5"
+          className="mb-space-4 w-full rounded border border-border-default bg-surface-card p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
         >
           <option value="todo">To Do</option>
           <option value="in_progress">In Progress</option>
           <option value="done">Done</option>
         </select>
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-space-2">
           {existing && onDelete ? (
             confirmDelete ? (
-              <div className="flex gap-2">
+              <div className="flex gap-space-2">
                 <button
                   type="button"
                   onClick={() => onDelete(existing.id)}
-                  className="rounded bg-red-600 px-3 py-1.5 text-sm text-white"
+                  className="rounded bg-accent-terra-700 px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card"
                 >
                   Confirm delete
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmDelete(false)}
-                  className="rounded border px-3 py-1.5 text-sm"
+                  className="rounded border border-border-default px-space-3 py-space-1 text-size-sm text-ink-700"
                 >
                   Cancel
                 </button>
@@ -208,7 +210,7 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}
-                className="rounded border border-red-500 px-3 py-1.5 text-sm text-red-600"
+                className="rounded border border-accent-terra-500 px-space-3 py-space-1 text-size-sm text-accent-terra-700"
               >
                 Delete
               </button>
@@ -216,17 +218,17 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
           ) : (
             <span />
           )}
-          <div className="flex gap-2">
+          <div className="flex gap-space-2">
             <button
               type="button"
               onClick={onClose}
-              className="rounded border px-3 py-1.5 text-sm"
+              className="rounded border border-border-default px-space-3 py-space-1 text-size-sm text-ink-700"
             >
               Close
             </button>
             <button
               type="submit"
-              className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white"
+              className="rounded bg-ink-900 px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card"
             >
               Save
             </button>

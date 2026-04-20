@@ -23,7 +23,7 @@ describe("TaskCard", () => {
   it("applies overdue styling when past due and not done", () => {
     render(<TaskCard task={task} onOpen={() => {}} today="2026-04-17" />);
     const card = screen.getByRole("button", { name: /ship it/i });
-    expect(card.className).toMatch(/border-red-500/);
+    expect(card.className).toMatch(/border-accent-terra-500/);
   });
 
   it("does not apply overdue styling when done", () => {
@@ -35,7 +35,7 @@ describe("TaskCard", () => {
       />,
     );
     const card = screen.getByRole("button", { name: /ship it/i });
-    expect(card.className).not.toMatch(/border-red-500/);
+    expect(card.className).not.toMatch(/border-accent-terra-500/);
   });
 
   it("fires onOpen with id when clicked", async () => {

@@ -181,19 +181,19 @@ export function Board({ initialTasks }: Props) {
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <main className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
+      <main className="mx-auto flex max-w-6xl flex-col gap-space-4 px-space-4 py-space-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-slate-800">Plan</h1>
-          <div className="flex items-center gap-3">
+          <h1 className="font-family-display text-size-xl font-weight-semibold text-ink-900">Plan</h1>
+          <div className="flex items-center gap-space-3">
             {pending && (
-              <span className="text-xs text-slate-500" aria-live="polite">
+              <span className="text-size-xs text-ink-500" aria-live="polite">
                 Saving…
               </span>
             )}
             <button
               type="button"
               onClick={() => setDialog({ kind: "create" })}
-              className="rounded bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+              className="rounded bg-ink-900 px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card transition-colors duration-duration-fast ease-ease-standard hover:bg-ink-700"
             >
               Add task
             </button>
@@ -202,12 +202,12 @@ export function Board({ initialTasks }: Props) {
         {error && (
           <p
             role="alert"
-            className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+            className="rounded border border-accent-terra-500 bg-surface-card p-space-3 text-size-sm text-accent-terra-700"
           >
             {error}
           </p>
         )}
-        <div className="flex flex-col gap-3 md:flex-row">
+        <div className="flex flex-col gap-space-3 md:flex-row md:gap-space-6">
           {COLUMNS.map((c) => (
             <Column key={c.id} id={c.id} label={c.label} count={byStatus[c.id].length}>
               {byStatus[c.id].map((t) => (

@@ -29,10 +29,12 @@ export default function SignInPage({
   const errorMessage = signInErrorMessage(errorCode);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
-      <div className="space-y-2">
-        <h1 className="text-3xl">Sign in to Plan</h1>
-        <p className="text-sm text-slate-600">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-space-6 py-space-12">
+      <div className="space-y-space-2">
+        <h1 className="font-family-display text-size-xl font-weight-semibold text-ink-900">
+          Sign in to Plan
+        </h1>
+        <p className="text-size-sm text-ink-700">
           I will send you a one-time link. No password to remember.
         </p>
       </div>
@@ -40,13 +42,13 @@ export default function SignInPage({
       {errorMessage && (
         <p
           role="alert"
-          className="mt-6 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+          className="mt-space-6 rounded border border-accent-terra-500 bg-surface-card p-space-3 text-size-sm text-accent-terra-700"
         >
           {errorMessage}
         </p>
       )}
 
-      <div className="mt-8">
+      <div className="mt-space-8">
         <SignInForm next={next} />
       </div>
     </main>
