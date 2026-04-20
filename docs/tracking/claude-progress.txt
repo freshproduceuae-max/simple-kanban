@@ -11,6 +11,35 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
   * After any /compact or session-resume, the FIRST action before any tool call or reply body is to re-check CLAUDE.md §Workflow Rules for mandatory response conventions. Treat compaction as a fresh session for protocol purposes, not for state.
 - Logging this lapse here rather than in CLAUDE.md pending CD call on whether one miss warrants a new rule or whether the existing rule already suffices.
 
+2026-04-21 F03 Codex P1 fix — ?next= round-trip
+- Codex correctly flagged that the middleware-set next was never reaching Supabase. Middleware wrote /sign-in?next=/history; callback could honor next; sendMagicLink ignored it. Fix:
+  * lib/auth/callback-url.ts — new pure helper buildEmailRedirectTo(origin, next). Applies safeNext; if sanitized value is '/', emits bare /auth/callback (no `next=` param — matches callback's own fallback semantics). Uses URLSearchParams for encoding.
+  * app/(auth)/sign-in/page.tsx — now reads searchParams?.next, sanitizes via safeNext, forwards to SignInForm as a prop. Also surfaces searchParams?.error (callback writes it on failure paths).
+  * app/(auth)/sign-in/sign-in-form.tsx — accepts `next` prop, renders as hidden input. Server-side sanitization is the source of truth; client re-sanitization would be theater.
+  * app/(auth)/sign-in/actions.ts — sendMagicLink now reads formData.get('next') and feeds it to buildEmailRedirectTo. No direct URL manipulation.
+- Defense in depth: next is sanitized three times on the server (page's safeNext, buildEmailRedirectTo's internal safeNext, callback's safeNext on redemption). Any single layer failing still blocks the open redirect.
+- Tests added:
+  * lib/auth/__tests__/callback-url.test.ts — 4 describe blocks covering default/missing, same-origin preserved, open-redirect stripped, URL-encoded query+fragment.
+  * app/(auth)/sign-in/__tests__/sign-in-form.test.tsx — render assertions via @testing-library/react (already installed), hidden input present with default '/' + caller-supplied value. Stubbed actions module with vi.mock since the action is server-only.
+- 136/136 total. typecheck 0, lint clean, build compiles /sign-in + /auth/callback.
+
+2026-04-21 F03 open — magic-link auth
+- PR #21 (F02) merged e1ae080 on main. F02 passes:true. Codex re-review clean.
+- F03 on feat/v0.4-F03-magic-link-auth. Implemented per features.json steps:
+  * app/(auth)/sign-in/page.tsx — editorial-quiet page, mobile-first max-w-md
+  * app/(auth)/sign-in/sign-in-form.tsx — client component, useTransition for pending state, renders success message after OTP sent
+  * app/(auth)/sign-in/actions.ts — Server Action `sendMagicLink`. Builds emailRedirectTo from x-forwarded-host / host + x-forwarded-proto so links work on localhost, preview, and prod without env coupling.
+  * app/(auth)/sign-out/actions.ts — `signOut` Server Action + redirect to /sign-in
+  * app/auth/callback/route.ts — GET handler; exchangeCodeForSession; error branches redirect to /sign-in?error=...; open-redirect guard via safeNext()
+  * lib/supabase/middleware.ts — now route-gates: unauth + non-public → redirect to /sign-in?next=<path>; authed at /sign-in → /
+- Three pure helpers extracted for testability:
+  * lib/auth/safe-next.ts — open-redirect guard (// protocol-relative, /\ backslash smuggling, http:/https: absolute, javascript:/data: schemes all rejected)
+  * lib/auth/email.ts — normalize (trim + lowercase) + shallow regex validation; final gate is Supabase
+  * lib/auth/public-paths.ts — isPublicPath: exact-match /sign-in, /auth/callback + prefix-match /_next + favicon. Everything else requires auth.
+- 14 new unit tests (3 files) across these helpers. Total 130/130.
+- Standing rule followed: no allowlist in this PR — that is F04's scope. The callback is structurally ready to accept F04's rejection branch.
+- Next after F03 merge: F04 (beta allowlist enforcement on callback).
+
 2026-04-20 F02 Codex P1 fix — apply-time test caught a real bug
 - Codex P1 on PR #21: static SQL-text test is insufficient; F02 requires real apply-time verification. CD approved pglite devDep. Added @electric-sql/pglite ^0.4.4.
 - apply.test.ts: real Postgres 16 (WASM via pglite), auth schema shim (auth.users, auth.uid() returning null::uuid, anon + authenticated roles created via do-block because pglite doesn't provision them), applies 001..010 in lex order, asserts: every expected table exists, RLS on all, council_metrics_daily view present WITH (security_invoker=true) via reloptions, every hot-path index from migration 010 present, every RLS-enabled table has at least one policy.

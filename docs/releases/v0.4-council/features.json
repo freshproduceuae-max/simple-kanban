@@ -61,7 +61,7 @@
         "Add sign-out action",
         "Block app routes behind auth; redirect unauthenticated to /sign-in"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F04",
