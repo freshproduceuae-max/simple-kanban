@@ -28,7 +28,7 @@
         "Add CI rule (eslint-plugin-boundaries or bespoke grep check) blocking @supabase/* imports outside the two paths",
         "Unit-test the boundary rule"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F02",
