@@ -3,6 +3,13 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 Phase 10 close (GREEN) + Phase 11 open (F01)
+- PR #19 merged as c3bc60c on main. Phase 10 GREEN. Codex re-review clean.
+- Two blockers fixed in commit 536ec75: (1) tailwind.config.ts rewritten to canonical --color-*/--font-family-*/--shadow-*/--motion-* names only per design-system.md §11 (removed non-canonical --color-surface/--color-moss/--font-display/--shadow-card/--motion-duration-standard); (2) council_metrics_daily view now declared `with (security_invoker = true)` + `revoke all from public, anon; grant select to authenticated` - prevents cross-user aggregate leak via view-owner RLS bypass.
+- Non-blocking dep drift also corrected: package.json floors pinned back to plan values (^2.46.1 / ^4.0.1 / ^3.23.8 / ^1.219.2) and lockfile refreshed.
+- Phase 11 open on feat/v0.4-F01-persistence-boundary. F01 body already in scaffolding PR; this PR flips features.json F01 passes:true + updates ledger in docs/releases/v0.4-council/progress.md + session log entries. Optional: add ESLint-programmatic integration test verifying @supabase/* boundary rule fires on a council/ fixture (satisfies F01 step 4 more rigorously than unit-level).
+- Next after F01 merge: F02 (migrations apply verified) or F03 (magic-link auth), both unblocked.
+
 2026-04-20 Phase 10 plan close + execution PR open
 - PR #18 merged. Execution on feat/phase-10-v04-scaffolding.
 - npm installs done verbatim: @supabase/supabase-js, @supabase/ssr, @anthropic-ai/sdk, resend, zod (runtime) + supabase CLI + eslint-plugin-boundaries (dev). Lockfile committed.

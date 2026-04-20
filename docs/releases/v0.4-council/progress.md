@@ -2,7 +2,7 @@
 
 Canonical progress record for the v0.4 Council release. One row per feature in `features.json`. Flipped to `passes: true` at merge. Session log at the bottom — terse, reverse-chronological.
 
-**Release status:** Phase 09 opened 2026-04-20. Phases 07 (PRD) + 08 (feature list) closed GREEN on main. Phase 10 (scaffolding) is the next gate; no code yet.
+**Release status:** Phase 10 closed GREEN 2026-04-20 — scaffolding landed on main via PR #19. Phase 11 open: feature-by-feature PRs start with F01.
 
 **Milestone cuts:**
 - `v0.4.0-alpha` — Tier A (F01–F22) on Vercel preview. CD-only.
@@ -19,7 +19,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 
 | ID | Description | PR | Passed |
 |---|---|---|---|
-| F01 | Persistence + Supabase boundary scaffold | — | ☐ |
+| F01 | Persistence + Supabase boundary scaffold | #19 + #20 | ☑ |
 | F02 | Supabase schema migrations (board + Council tables) | — | ☐ |
 | F03 | Magic-link auth via `@supabase/ssr` | — | ☐ |
 | F04 | v0.4-beta invite allowlist enforcement | — | ☐ |
@@ -93,6 +93,12 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-20 — Phase 10 GREEN + Phase 11 open (F01)
+
+- PR #19 merged as `c3bc60c` on main — scaffolding landed: deps, `lib/persistence/**`, `lib/supabase/**`, `lib/council/shared/**`, `lib/auth/**`, `lib/observability/**`, 10 migrations, `.eslintrc.json` with boundaries plugin, `.env.example`, middleware wired.
+- Codex re-review clean. Both blockers addressed in fix commit `536ec75`: Tailwind tokens rewritten to canonical names only; `council_metrics_daily` view now `security_invoker = true` with revoked public/anon grants.
+- Phase 11 opens with F01 — scaffolding already contained F01's body, this PR flips `passes: true` + adds boundary-rule integration coverage.
 
 ### 2026-04-20 — Phase 09 open (per-release progress scaffold)
 

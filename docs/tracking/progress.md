@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — scaffolding. Phase 10 plan merged (PR #18). Execution PR open on `feat/phase-10-v04-scaffolding`: 5 runtime deps + 2 dev deps installed, `lib/{supabase,persistence,council,auth,observability}/**` + `app/` routes + `components/` stubs scaffolded, 10 Supabase migrations with RLS, ESLint boundary + NEXT_PUBLIC_ bans wired. typecheck/lint/test (85)/build all green.
+- **v0.4 Council** — Phase 10 GREEN (scaffolding merged as PR #19 → `c3bc60c` on main). Phase 11 open: feature-by-feature PRs start with F01 on `feat/v0.4-F01-persistence-boundary`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -28,13 +28,18 @@ This is the cross-release view. Per-release progress lives under each release fo
 | 07 | PRD (per release) | done (GREEN, v0.4) | `docs/releases/v0.4-council/prd.md`, `docs/tracking/phase-07-v04-prd-progress.md` |
 | 08 | Feature list | done (GREEN, v0.4) | `docs/releases/v0.4-council/features.json`, `docs/releases/v0.4-council/features-README.md` |
 | 09 | Progress tracking | done (GREEN, v0.4 per-release) | `docs/releases/v0.4-council/progress.md` |
-| 10 | Scaffolding | execution PR open (v0.4) | `docs/releases/v0.4-council/scaffolding-plan.md`, `lib/**`, `app/**`, `components/**`, `supabase/migrations/**` |
-| 11 | Execution | pending | — |
+| 10 | Scaffolding | done (GREEN, v0.4) | `docs/releases/v0.4-council/scaffolding-plan.md`, `lib/**`, `app/**`, `components/**`, `supabase/migrations/**` (PR #19 merged) |
+| 11 | Execution | open (v0.4, F01 first) | `docs/releases/v0.4-council/progress.md` feature ledger |
 | 12 | Incidents | n/a (no production incidents yet) | — |
 
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-20 — Phase 10 close (GREEN) + Phase 11 open (F01)
+
+- Closed Phase 10 GREEN. PR #19 merged as `c3bc60c` on main. Codex re-review clean after two blockers addressed in fix commit `536ec75` (Tailwind canonical tokens; `council_metrics_daily` view `security_invoker = true` with revoked public/anon grants).
+- Opened Phase 11 on `feat/v0.4-F01-persistence-boundary`. F01 body landed in the scaffolding PR; this PR flips `features.json` F01 `passes: true`, updates per-release ledger, and adds boundary-rule integration coverage.
 
 ### 2026-04-20 — Phase 05 close + Phase 06 prep (overnight)
 
