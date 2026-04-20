@@ -3,6 +3,21 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F07 open — Council shelf scaffold
+- PR #25 (F06) merged 4801ef1. F06 passes:true.
+- F07 on feat/v0.4-F07-council-shelf. Replaced the four stub files with real impls + a composite:
+  * ShelfContainer — <aside> fixed inset-x-0 bottom-0, mx-auto max-w-[1216px] so it spans the board frame at ≥1280px (§6.3) and full-width at 375px (§6.2). bg-surface-shelf + top border border-border-default. No floating chrome (§7.1).
+  * ShelfHeader — always-visible strip. Fraunces "Council" label (one voice, §10.1). Hosts the toggle.
+  * ShelfToggle — text-led disclosure, aria-expanded + aria-controls. Caret rotates via --motion-duration-fast + --motion-ease-standard. Focus ring via shadow-ring-focus.
+  * ShelfBody — role="region", editorial flow (§8.3 no bubble chrome). Scroll-capped 60vh. Collapse/expand uses the `grid-rows-[0fr] ↔ grid-rows-[1fr]` technique with transition-[grid-template-rows] duration-duration-medium ease-ease-standard — that IS the 300ms --motion-ease-standard contract from §9.3 without needing explicit heights.
+  * CouncilShelf — composite. useState + useId wires disclosure → region.
+- Mounted in app/page.tsx next to <Board>. Board gains pb-space-16 so the collapsed header strip doesn't occlude the last card.
+- F06 typecheck regression fixed in passing: layout-fonts.test.tsx used regex /s flag (requires TS target es2018+, our default rejects it). Swapped to [\s\S]*? — same semantics, portable. Slipped through F06 merge.
+- Tests +7 → 176/176. components/__tests__/CouncilShelf.test.tsx covers: sticky-bottom surface tokens, disclosure wiring, toggle click, grid-rows motion classes, initialOpen, children render without bubble chrome (walks ancestors up to the region), placeholder line when empty.
+- typecheck 0, lint clean, 176/176, build compiles.
+
+---
+
 2026-04-21 F06 open — canonical v0.4 design tokens
 - PR #24 (F05) merged 359ea3a. F05 passes:true. Codex re-review clean after the boundary fix.
 - F06 on feat/v0.4-F06-design-tokens. Pure token pass, no behaviour change:

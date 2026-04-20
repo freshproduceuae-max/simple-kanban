@@ -1,4 +1,5 @@
 import { Board } from '@/components/Board';
+import { CouncilShelf } from '@/components/council-shelf';
 import { listTasksAction } from '@/lib/board/actions';
 
 /**
@@ -24,5 +25,10 @@ export default async function Page() {
       </main>
     );
   }
-  return <Board initialTasks={result.value} />;
+  return (
+    <>
+      <Board initialTasks={result.value} />
+      <CouncilShelf />
+    </>
+  );
 }

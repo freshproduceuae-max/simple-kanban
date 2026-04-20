@@ -181,7 +181,7 @@ export function Board({ initialTasks }: Props) {
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <main className="mx-auto flex max-w-6xl flex-col gap-space-4 px-space-4 py-space-6">
+      <main className="mx-auto flex max-w-6xl flex-col gap-space-4 px-space-4 py-space-6 pb-space-16">
         <div className="flex items-center justify-between">
           <h1 className="font-family-display text-size-xl font-weight-semibold text-ink-900">Plan</h1>
           <div className="flex items-center gap-space-3">

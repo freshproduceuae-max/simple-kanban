@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`). F06 design tokens open on `feat/v0.4-F06-design-tokens`.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`), F06 merged (#25 `4801ef1`). F07 Council shelf scaffold open on `feat/v0.4-F07-council-shelf`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,11 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F06 close (GREEN) + F07 open (Council shelf scaffold)
+
+- PR #25 merged (`4801ef1`). F06 `passes: true`. Codex re-review clean.
+- F07 opens on `feat/v0.4-F07-council-shelf` — real `ShelfContainer` + `ShelfHeader` + `ShelfBody` + `ShelfToggle` + composite `CouncilShelf`. Sticky-bottom aside, `surface-shelf` on `border-default` top, full-width at 375px and bounded to the board frame (`max-w-[1216px]`) at 1280px. Grid-rows 0fr↔1fr collapse/expand at 300ms `--motion-ease-standard` per §9.3. Editorial-flow body (§8.3). Mounted in `app/page.tsx`. +7 tests → 176/176. Slipped-through F06 typecheck fix (regex `/s` → `[\s\S]`) landed here too.
 
 ### 2026-04-21 — F05 close (GREEN) + F06 open (design tokens)
 
