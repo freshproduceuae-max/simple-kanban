@@ -3,6 +3,12 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 F01 GREEN + F02 open
+- PR #20 merged as e1025d2 on main. Codex re-review clean after P1 fix: replaced config-shape test with real ESLint enforcement via ESLint.lintText({ filePath }) on four virtual fixtures. Added lib/__tests__/eslint.d.ts shim rather than pulling @types/eslint.
+- F02 opens on feat/v0.4-F02-schema-migrations. Body already landed in scaffolding (migrations 001-010). This PR flips F02 passes:true and adds supabase/migrations/__tests__/integrity.test.ts — 22 static guards: contiguous 001..010 numbering + every `create table public.X` followed by `alter table public.X enable row level security` in the same file + every RLS-enabled table has at least one policy. Views + indexes-only migrations naturally not caught (views inherit RLS; 010 creates no tables).
+- No local Supabase spin-up (docker) — left for F05/F20 integration when a real DB is necessary. Static guards catch the class of bug that actually costs us (forgot to RLS = cross-user leak) without requiring CI docker.
+- 111/111 tests pass (89 + 22 new). typecheck 0, lint clean.
+
 2026-04-20 Phase 10 close (GREEN) + Phase 11 open (F01)
 - PR #19 merged as c3bc60c on main. Phase 10 GREEN. Codex re-review clean.
 - Two blockers fixed in commit 536ec75: (1) tailwind.config.ts rewritten to canonical --color-*/--font-family-*/--shadow-*/--motion-* names only per design-system.md §11 (removed non-canonical --color-surface/--color-moss/--font-display/--shadow-card/--motion-duration-standard); (2) council_metrics_daily view now declared `with (security_invoker = true)` + `revoke all from public, anon; grant select to authenticated` - prevents cross-user aggregate leak via view-owner RLS bypass.

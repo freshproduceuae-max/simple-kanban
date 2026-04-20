@@ -44,7 +44,7 @@
         "Add RLS policies: user sees only own rows",
         "Seed local dev DB from migration"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F03",
