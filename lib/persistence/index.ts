@@ -13,6 +13,7 @@ export type {
 
 export { TaskRepositoryNotImplemented } from './task-repository';
 export type { TaskRepository, ApprovalContext } from './task-repository';
+export { SupabaseTaskRepository } from './supabase-task-repository';
 
 export { CouncilMemoryRepositoryNotImplemented } from './council-memory-repository';
 export type { CouncilMemoryRepository } from './council-memory-repository';

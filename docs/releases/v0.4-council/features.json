@@ -92,7 +92,7 @@
         "Add loading, success, and error states per global CLAUDE.md",
         "Preserve three-column layout behavior from v0.1"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F06",
