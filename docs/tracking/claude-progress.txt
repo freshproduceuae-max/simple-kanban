@@ -3,6 +3,16 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 Phase 06 close + Phase 07 open
+- Phase 06 closed GREEN. PR #13 merged as cd8ea71 on main. docs/design-system/design-system.md is canonical for v0.4.
+- Gemini raw output frozen at docs/design-system/gemini-raw-output.md. Editorial-planner inspiration frozen at docs/design-system/inspiration/editorial-planner-direction.md.
+- Phase 07 v0.4 PRD kickoff opened on chore/phase-07-v04-prd-kickoff. Tracking doc at docs/tracking/phase-07-v04-prd-progress.md structures the 16 open decisions as a CD interview.
+- Three authoritative inputs into the v0.4 PRD: docs/prd/vision.md (canonical), docs/design-system/design-system.md (canonical), docs/tracking/phase-07-prd-input-queue.md (gaps to resolve).
+- The Phase 07 PRD output is docs/releases/v0.4-council/prd.md - written after the CD walks the 16 decisions.
+- Do NOT make product decisions autonomously. All 16 items say "PRD decision required" - they are CD calls.
+- Still no npm installs. That is Phase 10. Still no code. That is Phase 11.
+- PR #2 + PR #8 still sidelined, non-blocking.
+
 2026-04-20 overnight
 - Phase 05 closed GREEN. PR #11 merged as c052388. Codex two-pass audit: YELLOW -> GREEN.
 - Phase 06 Brand Identity prep opened on chore/phase-06-brand-identity-queue.

@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — planning. Phase 06 Brand Identity prep in flight on `chore/phase-06-brand-identity-queue`.
+- **v0.4 Council** — planning. Phase 06 Brand Identity closed GREEN. Phase 07 v0.4 PRD kickoff on `chore/phase-07-v04-prd-kickoff`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -24,8 +24,8 @@ This is the cross-release view. Per-release progress lives under each release fo
 | 03 | Global rules | done | `docs/tracking/phase-03-global-rules.md` |
 | 04 | Project rules | done | `CLAUDE.md` (root) |
 | 05 | Bootstrap | done (GREEN) | `docs/tracking/phase-05-bootstrap.md` |
-| 06 | Brand identity | prep / in queue | `docs/tracking/phase-06-brand-identity.md` |
-| 07 | PRD (per release) | queued | `docs/tracking/phase-07-prd-input-queue.md` |
+| 06 | Brand identity | done (GREEN) | `docs/tracking/phase-06-brand-identity.md`, `docs/design-system/design-system.md` |
+| 07 | PRD (per release) | kickoff | `docs/tracking/phase-07-prd-input-queue.md`, `docs/tracking/phase-07-v04-prd-progress.md` |
 | 08 | Feature list | pending | — |
 | 09 | Progress tracking | scaffolded | this file |
 | 10 | Scaffolding | pending | — |
@@ -42,3 +42,9 @@ Every working session appends one entry. Keep entries terse.
 - Opened Phase 06 Brand Identity prep on `chore/phase-06-brand-identity-queue`. Gemini + Codex prompts queued for Creative Director to paste. PR #2 resolution surfaced as a precondition (recommended: close unmerged, extract aesthetic direction as inspiration).
 - Queued v0.4 PRD inputs (Phase 07) at `docs/tracking/phase-07-prd-input-queue.md`.
 - Scaffolded this file and `claude-progress.txt` for Phase 09.
+
+### 2026-04-20 — Phase 06 close + Phase 07 open
+
+- Closed Phase 06 Brand Identity GREEN. PR #13 merged (`cd8ea71` on `main`). Canonical design system lives at `docs/design-system/design-system.md` (13 sections, systematic token naming, light-mode-only for v0.4, vision-wins conflict rule, concrete thinking-stream spec). Gemini raw output frozen at `docs/design-system/gemini-raw-output.md`; editorial-planner inspiration frozen at `docs/design-system/inspiration/editorial-planner-direction.md`.
+- Opened Phase 07 v0.4 Council PRD kickoff on `chore/phase-07-v04-prd-kickoff`. Kickoff tracking doc at `docs/tracking/phase-07-v04-prd-progress.md` structures the 16 open decisions (10 Codex + 6 Claude) into an interview the Creative Director can walk through one question at a time.
+- PR #2 + PR #8 remain sidelined, non-blocking.
