@@ -1,3 +1,4 @@
+export { CouncilShelf } from './CouncilShelf';
 export { ShelfContainer } from './ShelfContainer';
 export { ShelfHeader } from './ShelfHeader';
 export { ShelfBody } from './ShelfBody';

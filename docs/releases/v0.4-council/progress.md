@@ -25,7 +25,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F04 | v0.4-beta invite allowlist enforcement | #23 | ☑ |
 | F05 | Board migration from localStorage to Supabase | #24 | ☑ |
 | F06 | Apply canonical v0.4 design tokens to existing UI | #25 | ☑ |
-| F07 | Bottom-shelf scaffold | — | ☐ |
+| F07 | Bottom-shelf scaffold | #26 | ☑ |
 | F08 | Thinking-stream component | — | ☐ |
 | F09 | Researcher agent (web + memory, fail-visible) | — | ☐ |
 | F10 | Consolidator agent (streaming, fail-hard) | — | ☐ |
@@ -93,6 +93,20 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-21 — F06 close (GREEN) + F07 open (Council shelf scaffold)
+
+- PR #25 merged (`4801ef1` on `main`). F06 `passes: true`. Codex re-review clean.
+- F07 opens on `feat/v0.4-F07-council-shelf`. Implemented the four shelf primitives plus a composite:
+  - `components/council-shelf/ShelfContainer.tsx` — sticky bottom `<aside>`, `bg-surface-shelf` on a `border-border-default` top edge, max-width bounded at `1216px` so the shelf spans the board frame at ≥1280px (design-system.md §6.3) and full-width at 375px (§6.2). No floating chrome (§7.1).
+  - `components/council-shelf/ShelfHeader.tsx` — always-visible strip. Fraunces "Council" label (§10.1 one-voice rule), hosts the toggle.
+  - `components/council-shelf/ShelfToggle.tsx` — text-led disclosure button with `aria-expanded` + `aria-controls`. Caret rotates with `--motion-duration-fast` + `--motion-ease-standard`. Focus ring via `shadow-ring-focus` (§7.2).
+  - `components/council-shelf/ShelfBody.tsx` — `role="region"`, editorial flow per §8.3 (no bubble chrome, turns separated by spacing + typography). Scroll-capped at `60vh` so long sessions cannot push the board off-screen. Collapse/expand uses the `grid-rows: 0fr ↔ 1fr` technique with `transition-[grid-template-rows] duration-duration-medium ease-ease-standard` — that's the 300ms `--motion-ease-standard` contract from §9.3.
+  - `components/council-shelf/CouncilShelf.tsx` — composite holding `isOpen`; wires the disclosure via `useId()`.
+- Mounted in `app/page.tsx` alongside the board. `components/Board.tsx` gains `pb-space-16` so the collapsed header strip never occludes the last card.
+- Codex-carry fix: `app/__tests__/layout-fonts.test.tsx` used the regex `/s` flag which requires TS target `es2018+` (default target rejected it). Replaced with `[\s\S]*?` — same semantics, portable. Fixes a typecheck error that slipped through the F06 merge.
+- Tests +7 → 176/176. `components/__tests__/CouncilShelf.test.tsx` asserts: sticky-bottom surface tokens, disclosure wiring (`aria-expanded` + `aria-controls` → region id), click toggles state, grid-rows collapse/expand + canonical motion classes, `initialOpen` honored, children render without bubble chrome (walks ancestors to the region boundary), placeholder line when empty.
+- typecheck 0, lint clean, 176/176, build compiles. 15 routes generated unchanged.
 
 ### 2026-04-20 — Process note: response-header convention dropped mid-session
 

@@ -125,7 +125,7 @@
         "Verify sticky-bottom behavior at 375px and shelf-width behavior at 1280px",
         "Render Council turns as direct-on-surface editorial flow (no bubble chrome) per design-system.md §8.3"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F08",

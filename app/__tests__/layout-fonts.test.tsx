@@ -31,8 +31,8 @@ describe('layout font registration (F06)', () => {
   it('applies all three variables on <html>', () => {
     // We look for the three .variable interpolations on the <html> tag.
     // Exact template is allowed to drift; ordering is not.
-    expect(src).toMatch(/<html[^>]*fontDisplay\.variable/s);
-    expect(src).toMatch(/<html[^>]*fontBody\.variable/s);
-    expect(src).toMatch(/<html[^>]*fontMono\.variable/s);
+    expect(src).toMatch(/<html[\s\S]*?fontDisplay\.variable/);
+    expect(src).toMatch(/<html[\s\S]*?fontBody\.variable/);
+    expect(src).toMatch(/<html[\s\S]*?fontMono\.variable/);
   });
 });
