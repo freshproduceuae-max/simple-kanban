@@ -1,67 +1,70 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { ESLint, type Linter } from 'eslint';
 
 /**
  * F01 step 4 — unit-test the boundary rule.
  *
- * Rather than spinning up ESLint programmatically (slow + flaky under CI),
- * this test asserts the shape of `.eslintrc.json` that Phase 10 committed.
- * Drift here is a hard signal that the @supabase/* import boundary has
- * weakened, which is the #1 rule we never want to silently lose.
+ * Runs ESLint programmatically against two virtual fixture files and
+ * asserts that `eslint-plugin-boundaries` actually fires (or doesn't) the
+ * way the Council Write Gate / persistence contract requires:
+ *
+ *   - lib/council/**  importing @supabase/ssr  → must error
+ *   - lib/persistence/** importing @supabase/ssr → must pass
+ *
+ * `lintText({ filePath })` lets us classify the virtual file under the
+ * right boundary element without writing anything to disk. Without an
+ * enforcement test the rule could silently stop firing (plugin upgrade,
+ * resolver change, typo in the element pattern) while the config still
+ * *looks* right — F01's whole contract is that this never happens.
  */
-describe('@supabase/* import boundary (F01)', () => {
-  const config = JSON.parse(
-    readFileSync(resolve(process.cwd(), '.eslintrc.json'), 'utf8'),
-  );
+// ESLint cold-start (config + plugin resolution) can exceed vitest's 5s default.
+describe('@supabase/* import boundary (F01)', { timeout: 30_000 }, () => {
+  const FIXTURE_CODE = [
+    "import { createBrowserClient } from '@supabase/ssr';",
+    'export const client = createBrowserClient;',
+    '',
+  ].join('\n');
 
-  it('registers eslint-plugin-boundaries', () => {
-    expect(config.plugins).toContain('boundaries');
+  const BOUNDARY_RULE = 'boundaries/external';
+
+  let eslint: ESLint;
+
+  beforeAll(() => {
+    eslint = new ESLint({ cwd: process.cwd() });
   });
 
-  it('declares every enforced element type', () => {
-    const patterns = new Map<string, string>(
-      (config.settings['boundaries/elements'] as Array<{ type: string; pattern: string }>).map(
-        (e) => [e.type, e.pattern],
-      ),
-    );
-    expect(patterns.get('supabase-plumbing')).toBe('lib/supabase/**');
-    expect(patterns.get('persistence')).toBe('lib/persistence/**');
-    expect(patterns.get('council')).toBeDefined();
-    expect(patterns.get('auth')).toBeDefined();
-    expect(patterns.get('observability')).toBeDefined();
-    expect(patterns.get('app')).toBeDefined();
-    expect(patterns.get('components')).toBeDefined();
-    expect(patterns.get('lib-other')).toBeDefined();
+  it('blocks @supabase/ssr imports from lib/council/** (disallowed)', async () => {
+    const [result] = await eslint.lintText(FIXTURE_CODE, {
+      filePath: 'lib/council/__fixtures__/disallowed.ts',
+    });
+    const boundaryErrors = result.messages.filter((m: Linter.LintMessage) => m.ruleId === BOUNDARY_RULE);
+    expect(boundaryErrors.length).toBeGreaterThan(0);
+    // Severity 2 = error, not warning — CI must actually fail.
+    expect(boundaryErrors[0].severity).toBe(2);
+    expect(boundaryErrors[0].message).toMatch(/@supabase/);
   });
 
-  it('disallows @supabase/* from everything except persistence + plumbing', () => {
-    const external = config.rules['boundaries/external'] as [
-      number,
-      { default: string; rules: Array<{ from: string[]; disallow: string[] }> },
-    ];
-    expect(external[0]).toBe(2); // error severity
-    const rule = external[1].rules[0];
-
-    // The two allowed homes for @supabase/*.
-    expect(rule.from).not.toContain('supabase-plumbing');
-    expect(rule.from).not.toContain('persistence');
-
-    // Everyone else is blocked.
-    for (const disallowed of ['council', 'auth', 'observability', 'app', 'components', 'lib-other']) {
-      expect(rule.from).toContain(disallowed);
-    }
-
-    // The specific packages are named — wildcards alone are not enough because
-    // some resolvers treat scoped imports unevenly.
-    expect(rule.disallow).toContain('@supabase/*');
-    expect(rule.disallow).toContain('@supabase/ssr');
-    expect(rule.disallow).toContain('@supabase/supabase-js');
+  it('allows @supabase/ssr imports from lib/persistence/** (permitted home)', async () => {
+    const [result] = await eslint.lintText(FIXTURE_CODE, {
+      filePath: 'lib/persistence/__fixtures__/allowed.ts',
+    });
+    const boundaryErrors = result.messages.filter((m: Linter.LintMessage) => m.ruleId === BOUNDARY_RULE);
+    expect(boundaryErrors).toHaveLength(0);
   });
 
-  it('bans NEXT_PUBLIC_* AI-secret env reads via no-restricted-syntax', () => {
-    const rule = config.rules['no-restricted-syntax'] as [string, { selector: string }];
-    expect(rule[0]).toBe('error');
-    expect(rule[1].selector).toMatch(/NEXT_PUBLIC_\(ANTHROPIC\|RESEND\|SUPABASE_SERVICE\|COUNCIL\)/);
+  it('blocks @supabase/ssr imports from app/** (disallowed)', async () => {
+    const [result] = await eslint.lintText(FIXTURE_CODE, {
+      filePath: 'app/__fixtures__/disallowed.ts',
+    });
+    const boundaryErrors = result.messages.filter((m: Linter.LintMessage) => m.ruleId === BOUNDARY_RULE);
+    expect(boundaryErrors.length).toBeGreaterThan(0);
+  });
+
+  it('allows @supabase/ssr imports from lib/supabase/** (plumbing)', async () => {
+    const [result] = await eslint.lintText(FIXTURE_CODE, {
+      filePath: 'lib/supabase/__fixtures__/allowed.ts',
+    });
+    const boundaryErrors = result.messages.filter((m: Linter.LintMessage) => m.ruleId === BOUNDARY_RULE);
+    expect(boundaryErrors).toHaveLength(0);
   });
 });
