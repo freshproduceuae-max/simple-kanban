@@ -26,7 +26,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F05 | Board migration from localStorage to Supabase | #24 | ☑ |
 | F06 | Apply canonical v0.4 design tokens to existing UI | #25 | ☑ |
 | F07 | Bottom-shelf scaffold | #26 | ☑ |
-| F08 | Thinking-stream component | — | ☐ |
+| F08 | Thinking-stream component | #27 | ☑ |
 | F09 | Researcher agent (web + memory, fail-visible) | — | ☐ |
 | F10 | Consolidator agent (streaming, fail-hard) | — | ☐ |
 | F11 | Critic agent (risk-threshold dispatch, fail-quiet) | — | ☐ |
@@ -93,6 +93,18 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-21 — F07 close (GREEN) + F08 open (thinking-stream)
+
+- PR #26 merged (`bc8a807`). F07 `passes: true`. Codex re-review clean after the strip-click fix.
+- F08 opens on `feat/v0.4-F08-thinking-stream`. Replaced the stub with a real component:
+  - `components/thinking-stream/ThinkingStream.tsx` — two entry modes. **Source mode** consumes an `AsyncIterable<string>` (works directly with Anthropic SDK streams, Web ReadableStreams via `for await`, or SSE adapters). **Controlled mode** accepts parent-owned `tokens: string[]` + `isStreaming: boolean` for tests and composition. Source-mode cleanup cancels via a closure flag on unmount.
+  - Rendering: one `<span data-thinking-token>` per *chunk* (not per char) so cadence variation is preserved at the producer level — per §9.2 "cadence varies in small bursts; must not feel like constant uniform machine output". Each span gets the `.thinking-stream-token` class. Key=index so existing tokens don't re-animate when new arrivals mount.
+  - Cursor: muted `▍` in `text-ink-500`, steady (not blinking — §9.2 "subtle, not theatrical"). `aria-hidden="true"` because the live region already carries the text.
+  - A11y: `role="status"` + `aria-live="polite"` + `aria-label="Council reply"`.
+  - `app/globals.css` — added `@keyframes thinking-stream-token-fade-in` (50ms opacity 0→1) + `.thinking-stream-token` rule with `--motion-ease-standard` + `forwards` fill-mode so older tokens sit at opacity 1 once animated. Respects `prefers-reduced-motion` with `animation: none; opacity: 1`.
+- Tests +5 → 183/183. `components/__tests__/ThinkingStream.test.tsx` covers: one-span-per-chunk + fade class applied; cursor visible while streaming + muted ink + aria-hidden, absent when done; polite live region; source mode iterates an AsyncIterable, preserves producer order, fires `onComplete` with the joined string; source mode surfaces iterator errors via `onError`. Manual `makeManualSource()` helper drives deterministic emit/close timing.
+- typecheck 0, lint clean, 183/183, build compiles. 15 routes unchanged.
 
 ### 2026-04-21 — F06 close (GREEN) + F07 open (Council shelf scaffold)
 

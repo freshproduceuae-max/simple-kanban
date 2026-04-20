@@ -141,7 +141,7 @@
         "Animate each token opacity 0→1 over ~50ms",
         "Vary inter-token delay in small bursts (no uniform machine-gun reveal)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F09",

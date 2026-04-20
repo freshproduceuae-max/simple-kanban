@@ -3,6 +3,21 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F08 open — thinking-stream component
+- PR #26 (F07) merged bc8a807. F07 passes:true. Codex re-review clean after strip-click fix.
+- F08 on feat/v0.4-F08-thinking-stream. Replaced stub with real impl:
+  * components/thinking-stream/ThinkingStream.tsx — two entry modes. Source-mode consumes AsyncIterable<string> (works with Anthropic SDK streams, Web ReadableStream via for-await, SSE adapters). Controlled-mode: parent passes tokens[] + isStreaming (for tests/composition).
+  * One span per chunk (NOT per char) — cadence variation is preserved at the producer level per §9.2 "cadence varies in small bursts". key=index so existing tokens don't re-animate on new arrivals.
+  * Cursor: muted ▍ in text-ink-500, steady (no blink — §9.2 "subtle, not theatrical"). aria-hidden=true (live region carries the text).
+  * A11y: role="status" + aria-live="polite" + aria-label="Council reply".
+  * globals.css — @keyframes thinking-stream-token-fade-in (50ms opacity 0→1) + .thinking-stream-token rule with --motion-ease-standard + forwards fill. prefers-reduced-motion honored (animation:none; opacity:1).
+  * Source-mode cleanup: closure flag cancels the async iteration on unmount so setState-after-unmount warnings don't appear.
+- Tests +5 → 183/183. components/__tests__/ThinkingStream.test.tsx: one-span-per-chunk + fade class; cursor visible/hidden + muted ink; polite live region; source-mode AsyncIterable iteration preserves producer order + onComplete fires with joined string; source-mode surfaces iterator errors via onError. Uses a manual makeManualSource() helper for deterministic emit/close timing.
+- typecheck 0, lint clean, 183/183, build compiles.
+- Note: F09 Consolidator will feed this as its UI output; F10 also. ThinkingStream itself does not inject cadence — producers do.
+
+---
+
 2026-04-21 F07 open — Council shelf scaffold
 - PR #25 (F06) merged 4801ef1. F06 passes:true.
 - F07 on feat/v0.4-F07-council-shelf. Replaced the four stub files with real impls + a composite:
