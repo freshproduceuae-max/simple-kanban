@@ -1,0 +1,27 @@
+Plan - per-session notes for the next AI.
+Terser than progress.md. One line per beat. Reverse-chronological (newest at top).
+
+---
+
+2026-04-20 overnight
+- Phase 05 closed GREEN. PR #11 merged as c052388. Codex two-pass audit: YELLOW -> GREEN.
+- Phase 06 Brand Identity prep opened on chore/phase-06-brand-identity-queue.
+- Gemini + Codex prompts queued in docs/tracking/phase-06-brand-identity.md sections 4 and 5.
+- PR #2 feat/design-refresh surfaced as Phase 06 precondition. Recommended: Option A (close unmerged, extract aesthetic as inspiration).
+- Phase 07 v0.4 PRD input queue written at docs/tracking/phase-07-prd-input-queue.md - 10 Codex gaps + 6 Claude-identified gaps + scope-hygiene list.
+- Phase 09 tracking stubs scaffolded (this file + progress.md).
+- On CD resume: (1) decide PR #2 (A/B/C), (2) paste Gemini prompt, (3) save raw output, (4) paste Codex normalization prompt, (5) close Phase 06, (6) start Phase 07 PRD against the input queue.
+- DO NOT install npm packages yet. That is Phase 10 Scaffolding territory and needs explicit CD approval per global CLAUDE.md.
+- DO NOT merge PR #2 as-is - it carries v0.6 scope (priority/tags/search/filter) into a v0.1.0 PR, which violates the serial-release lock.
+
+2026-04-20 earlier
+- Phases 02-04 landed. Vision + operating-model + project CLAUDE.md on main.
+- Phase 05 Codex Chief Architect audit run. YELLOW verdict with 4 blockers + 4 minor + 2 P2 follow-up items.
+- Fix PR #11 landed all 10 items across two commits; re-audit returned GREEN.
+
+Earlier project context:
+- v0.1.0 shipped on main (pre-methodology). Almost no brand commitment on main currently (Arial body font, two CSS vars).
+- Hybrid operating model: Claude Code primary, Codex blocking reviewer.
+- Agent split: P1 (by domain) for v0.4; P2 (by lifecycle) for v0.5+.
+- Repository boundary: lib/persistence/** for app data, lib/supabase/** for auth/session. Nothing else imports @supabase/*.
+- Council Write Gate: every board mutation requires proposalId + server-issued approval token. CI enforces at Phase 10.
