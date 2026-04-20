@@ -276,13 +276,14 @@ describe('Consolidator (F10)', () => {
       )
     );
     const log = vi.fn();
+    const sessionRepo = makeSessionRepo();
 
     const result = await consolidate(
       { userId: 'u1', sessionId: 's1', userInput: 'hi' },
-      { client, sessionRepo: makeSessionRepo(), memoryRepo: makeMemoryRepo(), log }
+      { client, sessionRepo, memoryRepo: makeMemoryRepo(), log }
     );
     const text = await drain(result.stream);
-    await result.done;
+    const outcome = await result.done;
 
     expect(text.startsWith('partial')).toBe(true);
     expect(text).toContain(CONSOLIDATOR_FAIL_SENTENCE);
@@ -290,6 +291,19 @@ describe('Consolidator (F10)', () => {
       expect.stringMatching(/mid-stream error/),
       expect.any(Error)
     );
+
+    // Invariant: the persisted session-log text, the `done` outcome,
+    // and the rendered reply are identical. The session log and any
+    // downstream critic/metrics orchestration must agree with what the
+    // user actually saw — including the recovery sentence.
+    expect(outcome.text).toBe(text);
+    const append = sessionRepo.appendTurn as unknown as {
+      mock: { calls: unknown[][] };
+    };
+    const assistantRow = append.mock.calls[1][0] as Record<string, unknown>;
+    expect(assistantRow.content).toBe(text);
+    expect(assistantRow.content).toContain('partial');
+    expect(assistantRow.content).toContain(CONSOLIDATOR_FAIL_SENTENCE);
   });
 
   it('schedules a session-pending summary via memoryRepo (cold path, best effort)', async () => {

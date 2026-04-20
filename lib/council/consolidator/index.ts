@@ -190,6 +190,17 @@ export async function consolidate(
   let tokensIn = 0;
   let tokensOut = 0;
 
+  // Single emit point for every text fragment the consumer will see.
+  // Keeping this as the ONLY way to produce an output token guarantees
+  // `chunks` and the yielded stream stay in lock-step — including the
+  // mid-stream recovery path. `finalize()` persists `chunks.join('')`
+  // and resolves `done` with the same text, so any consumer of `done`
+  // (critic, metrics, session log) sees exactly what the user saw.
+  const emit = (text: string): string => {
+    chunks.push(text);
+    return text;
+  };
+
   const passthrough: AsyncIterable<string> = {
     async *[Symbol.asyncIterator]() {
       try {
@@ -207,8 +218,7 @@ export async function consolidate(
             event.delta?.type === 'text_delta' &&
             typeof event.delta.text === 'string'
           ) {
-            chunks.push(event.delta.text);
-            yield event.delta.text;
+            yield emit(event.delta.text);
           }
           if (
             event.type === 'message_delta' &&
@@ -220,8 +230,10 @@ export async function consolidate(
         }
       } catch (err) {
         log('consolidator: mid-stream error', err);
-        yield ' ';
-        yield CONSOLIDATOR_FAIL_SENTENCE;
+        // Recovery tokens must also go through emit() so the persisted
+        // reply matches the rendered reply.
+        yield emit(' ');
+        yield emit(CONSOLIDATOR_FAIL_SENTENCE);
       }
     },
   };
