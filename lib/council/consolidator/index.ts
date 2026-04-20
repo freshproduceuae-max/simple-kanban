@@ -241,21 +241,39 @@ export async function consolidate(
     resolveDone = r;
   });
 
-  // Wrap the passthrough so that once the caller finishes iterating, we
-  // persist the assistant turn and resolve `done`.
+  // Finalization runs exactly once — whether the caller drained the
+  // stream fully, cancelled via `iterator.return()`, or the underlying
+  // iteration threw. F08's ThinkingStream explicitly calls `return()`
+  // on unmount/source change, so cancellation is the common case, not
+  // the edge.
+  let finalized = false;
+  const finalize = async (): Promise<void> => {
+    if (finalized) return;
+    finalized = true;
+    const text = chunks.join('');
+    await persistTurn(deps, {
+      sessionId: input.sessionId,
+      userId: input.userId,
+      agent: 'consolidator',
+      content: text,
+      tokensIn,
+      tokensOut,
+    });
+    resolveDone({ text, tokensIn, tokensOut, mode });
+  };
+
+  // Wrap the passthrough so that persistence + done-resolution happen
+  // exactly once regardless of how iteration terminates (normal end,
+  // caller `return()`, or error). `try/finally` in the async generator
+  // ensures the finalize step is reached even when the consumer
+  // cancels mid-stream.
   const wrapped: AsyncIterable<string> = {
     async *[Symbol.asyncIterator]() {
-      for await (const chunk of passthrough) yield chunk;
-      const text = chunks.join('');
-      await persistTurn(deps, {
-        sessionId: input.sessionId,
-        userId: input.userId,
-        agent: 'consolidator',
-        content: text,
-        tokensIn,
-        tokensOut,
-      });
-      resolveDone({ text, tokensIn, tokensOut, mode });
+      try {
+        for await (const chunk of passthrough) yield chunk;
+      } finally {
+        await finalize();
+      }
     },
   };
 

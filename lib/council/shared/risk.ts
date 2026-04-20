@@ -6,9 +6,11 @@ import type { RiskLevel } from '../../persistence/types';
  * through unreviewed. Heuristic-only, no SDK call — classification is
  * on the hot path of every Consolidator draft and must stay cheap.
  *
- * Per PRD §9.2:
+ * Per PRD §9.2 the risk tagger must account for:
  *   - low    → stylistic / ordinary chat
- *   - medium → definitive claims, commitments, factual assertions
+ *   - medium → definitive claims, commitments, factual assertions, OR
+ *              drafts longer than ~200 tokens (even without magic
+ *              words — length alone is a surface-area signal)
  *   - high   → irreversible actions, destructive language, strong
  *              commitments the user may act on
  */
@@ -30,10 +32,30 @@ const MEDIUM_RISK_PATTERNS: RegExp[] = [
   /\b(first|second|third|next step|step \d)\b/i,
 ];
 
+/**
+ * Anthropic's rule-of-thumb is ~4 characters per English token. We use
+ * that as a cheap local estimate so the heuristic stays SDK-free — the
+ * Critic dispatcher then pays for real tokens only when the estimate
+ * crosses threshold.
+ */
+export const CHARS_PER_TOKEN_ESTIMATE = 4;
+
+/** PRD §9.2 explicit escalation floor: drafts above this go to medium. */
+export const LONG_DRAFT_TOKEN_THRESHOLD = 200;
+
+export function estimateTokenCount(draft: string): number {
+  if (!draft) return 0;
+  return Math.ceil(draft.length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
 export function classifyDraftRisk(draft: string): RiskLevel {
   if (!draft || !draft.trim()) return 'low';
   if (HIGH_RISK_PATTERNS.some((re) => re.test(draft))) return 'high';
   if (MEDIUM_RISK_PATTERNS.some((re) => re.test(draft))) return 'medium';
+  // Length-based escalation (PRD §9.2): a long draft has enough
+  // surface area for a claim to slip through even without trigger
+  // words, so the Critic should review it.
+  if (estimateTokenCount(draft) > LONG_DRAFT_TOKEN_THRESHOLD) return 'medium';
   return 'low';
 }
 

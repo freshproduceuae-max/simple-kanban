@@ -118,11 +118,23 @@ export async function research(
   }
 
   try {
-    // Pull recent memory summaries for context (memory-only path).
-    const summaries = await deps.memoryRepo.listSummariesForUser(
-      input.userId,
-      5
-    );
+    // Pull recent memory summaries for context. The memory repo is
+    // still NotImplemented until F18, but F15/F16/F17 depend on F09
+    // and not F18 — so we degrade to "no prior summaries" instead of
+    // collapsing the whole research turn when the read fails. Real
+    // SDK failure still falls through to the outer fail-visible path.
+    let summaries: Array<{ content: string }> = [];
+    try {
+      summaries = await deps.memoryRepo.listSummariesForUser(
+        input.userId,
+        5
+      );
+    } catch (memErr) {
+      log(
+        'researcher: memory read unavailable, degrading to no-summaries',
+        memErr
+      );
+    }
     const memoryBlock =
       summaries.length > 0
         ? summaries.map((s) => `- ${s.content}`).join('\n')

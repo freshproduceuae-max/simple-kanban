@@ -4,6 +4,8 @@ import {
   classifyDraftRisk,
   shouldDispatchCritic,
   readConfiguredThreshold,
+  estimateTokenCount,
+  LONG_DRAFT_TOKEN_THRESHOLD,
 } from '../shared/risk';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import type { AnthropicLike } from '../shared/client';
@@ -58,6 +60,35 @@ describe('classifyDraftRisk', () => {
   it('handles empty or whitespace input gracefully', () => {
     expect(classifyDraftRisk('')).toBe('low');
     expect(classifyDraftRisk('   ')).toBe('low');
+  });
+
+  it('escalates drafts longer than ~200 tokens to medium (PRD §9.2)', () => {
+    // Build a draft with no magic words that comfortably clears the
+    // 200-token estimate. 'xyzzy ' is six safe chars, so 250 repeats
+    // is ~1500 chars ≈ 375 tokens — well past LONG_DRAFT_TOKEN_THRESHOLD.
+    const longSafeDraft = 'xyzzy '.repeat(250);
+    expect(estimateTokenCount(longSafeDraft)).toBeGreaterThan(
+      LONG_DRAFT_TOKEN_THRESHOLD
+    );
+    expect(classifyDraftRisk(longSafeDraft)).toBe('medium');
+  });
+
+  it('keeps a short word-word draft at low', () => {
+    // Just under the threshold, no magic words.
+    const shortDraft = 'ok, that works for me.';
+    expect(estimateTokenCount(shortDraft)).toBeLessThan(
+      LONG_DRAFT_TOKEN_THRESHOLD
+    );
+    expect(classifyDraftRisk(shortDraft)).toBe('low');
+  });
+
+  it('keeps high when a long draft also contains destructive language', () => {
+    const longHighDraft =
+      'I will delete the old branch. ' + 'padding text '.repeat(80);
+    expect(estimateTokenCount(longHighDraft)).toBeGreaterThan(
+      LONG_DRAFT_TOKEN_THRESHOLD
+    );
+    expect(classifyDraftRisk(longHighDraft)).toBe('high');
   });
 });
 

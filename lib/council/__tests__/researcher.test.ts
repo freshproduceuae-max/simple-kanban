@@ -209,6 +209,46 @@ describe('Researcher (F09)', () => {
     expect((client.messages.create as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBe(before);
   });
 
+  it('degrades gracefully when memoryRepo.listSummariesForUser is unimplemented', async () => {
+    // Mirrors the actual F18-gated state: NotImplemented throws, but F09
+    // must still return ok=true with a real text reply — the memory
+    // block just reads "no prior summaries" instead of collapsing the
+    // whole turn into the fail-visible sentence.
+    const log = vi.fn();
+    const memoryRepo = {
+      listSummariesForUser: vi
+        .fn()
+        .mockRejectedValue(
+          new Error('CouncilMemoryRepository: implementation lands with F18')
+        ),
+      writeSummary: vi.fn(),
+      writeRecall: vi.fn(),
+      listRecallsForTurn: vi.fn(),
+    } as unknown as CouncilMemoryRepository;
+    const client = makeClient(textResponse);
+
+    const finding = await research(
+      {
+        userId: 'u1',
+        sessionId: 's1',
+        mode: 'chat',
+        query: 'Hello',
+        webEnabled: false,
+      },
+      { client, sessionRepo: makeSessionRepo(), memoryRepo, log }
+    );
+
+    expect(finding.ok).toBe(true);
+    expect(finding.text).toContain('lingering');
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/memory read unavailable/),
+      expect.any(Error)
+    );
+    const callArg = (client.messages.create as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0][0] as Record<string, unknown>;
+    expect(String(callArg.system)).toContain('no prior-session summaries yet');
+  });
+
   it('swallows session-write failures (fail-visible turns on the user-facing path only)', async () => {
     const log = vi.fn();
     const sessionRepo = makeSessionRepo({

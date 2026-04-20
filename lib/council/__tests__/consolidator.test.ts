@@ -373,6 +373,94 @@ describe('Consolidator (F10)', () => {
     );
   });
 
+  it('persists the partial assistant turn and resolves done when the consumer cancels via iterator.return()', async () => {
+    // Synthetic SDK stream: emits two deltas, but we'll interrupt after
+    // the first chunk so the generator is suspended mid-iteration when
+    // return() is called.
+    const client: AnthropicLike = {
+      messages: {
+        create: vi.fn().mockImplementation(async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: 'content_block_delta',
+              delta: { type: 'text_delta', text: 'partial-' },
+            };
+            yield {
+              type: 'content_block_delta',
+              delta: { type: 'text_delta', text: 'never-arrives' },
+            };
+          },
+        })),
+      },
+    } as unknown as AnthropicLike;
+    const sessionRepo = makeSessionRepo();
+
+    const result = await consolidate(
+      { userId: 'u1', sessionId: 's1', userInput: 'hi' },
+      { client, sessionRepo, memoryRepo: makeMemoryRepo() }
+    );
+
+    const iter = result.stream[Symbol.asyncIterator]();
+    const first = await iter.next();
+    expect(first.value).toBe('partial-');
+    expect(first.done).toBe(false);
+
+    // Consumer cancels (F08 ThinkingStream unmount/source-change path).
+    const ret = await iter.return?.();
+    expect(ret?.done).toBe(true);
+
+    // `done` must resolve (not hang) and carry the partial text so any
+    // critic / metrics orchestration waiting on it can proceed.
+    const outcome = await result.done;
+    expect(outcome.text).toBe('partial-');
+
+    const append = sessionRepo.appendTurn as unknown as {
+      mock: { calls: unknown[][] };
+    };
+    // user turn + partial assistant turn — exactly two writes.
+    expect(append.mock.calls.length).toBe(2);
+    const assistantRow = append.mock.calls[1][0] as Record<string, unknown>;
+    expect(assistantRow.agent).toBe('consolidator');
+    expect(assistantRow.content).toBe('partial-');
+  });
+
+  it('finalizes exactly once even when return() is called multiple times', async () => {
+    const client: AnthropicLike = {
+      messages: {
+        create: vi.fn().mockImplementation(async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: 'content_block_delta',
+              delta: { type: 'text_delta', text: 'x' },
+            };
+            yield {
+              type: 'content_block_delta',
+              delta: { type: 'text_delta', text: 'y' },
+            };
+          },
+        })),
+      },
+    } as unknown as AnthropicLike;
+    const sessionRepo = makeSessionRepo();
+
+    const result = await consolidate(
+      { userId: 'u1', sessionId: 's1', userInput: 'hi' },
+      { client, sessionRepo, memoryRepo: makeMemoryRepo() }
+    );
+    const iter = result.stream[Symbol.asyncIterator]();
+    await iter.next();
+    await iter.return?.();
+    await iter.return?.();
+    await iter.return?.();
+    await result.done;
+
+    const append = sessionRepo.appendTurn as unknown as {
+      mock: { calls: unknown[][] };
+    };
+    // user + assistant (exactly one finalize, not three).
+    expect(append.mock.calls.length).toBe(2);
+  });
+
   it('uses the explicit mode override when provided instead of classifying', async () => {
     const create = vi.fn().mockResolvedValue(
       makeStream([
