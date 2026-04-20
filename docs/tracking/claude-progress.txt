@@ -3,6 +3,29 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F05 Codex P1 fix — boundary restored
+- Codex P1: lib/board/get-task-repository.ts was building the repo from createServerClient inside the board layer. Functionally OK but it reintroduced the F01 coupling and set a bad precedent for product code. Real blocker.
+- Moved factory to lib/persistence/server.ts#getTaskRepository(). Deleted lib/board/get-task-repository.ts.
+- Extracted getAuthedUserId() to lib/auth/current-user.ts so actions.ts doesn't import from lib/supabase for auth either. lib/board/** now grep-clean of supabase imports (only comments mention it).
+- Added F05 regression guard to lib/__tests__/boundary-rule.test.ts: lib/board/** importing @supabase/ssr fails boundaries/external. 5/5.
+- typecheck 0, lint clean, 123/123 green, build compiles.
+
+2026-04-21 F05 open — board migration from localStorage to Supabase
+- PR #23 (F04) merged 74bee1a. F04 passes:true.
+- F05 on feat/v0.4-F05-board-migration. Big feature, shipped as one PR:
+  * lib/persistence/supabase-task-repository.ts — real TaskRepository. Filters by user_id on every query, not just RLS. Refuses empty ApprovalContext before hitting the client (gate fails fast). update sets updated_at explicitly.
+  * lib/board/approval.ts — mintUserApprovalContext() returns {proposalId: randomUUID, approvalToken: 32 random bytes base64url}. Real verification is F12's; the repository refusing empties catches call-site regressions.
+  * lib/board/mappers.ts — taskRowToTask + dueDateToOverdueAt. Kept app-level Task shape untouched (id, title, description, dueDate, status, createdAt) so components/** don't move. position = createdAt (ms) preserves v0.1 insertion order.
+  * lib/board/get-task-repository.ts — server-only factory. Binds SupabaseTaskRepository to the current request's server client (cookies → RLS).
+  * lib/board/actions.ts — Server Actions: listTasks, create, edit, move, delete, migrateLocalTasks. Each action resolves userId from supabase.auth.getUser(), mints an ApprovalContext, calls the repo, revalidatePath('/'). Uniform ActionResult<T> so client rolls back optimistic updates on {ok:false}.
+  * app/page.tsx — now server component. Calls listTasksAction(), shows calm alert on failure.
+  * components/Board.tsx — refactored to take initialTasks prop. useTransition + useState for optimistic CRUD. role="alert" banner for errors. "Saving…" for pending. One-time mount effect: if server empty + localStorage has v0.1 tasks, calls migrateLocalTasksAction, clears localStorage, window.location.reload() to re-fetch canonical rows. Three-column layout untouched.
+- Removed lib/useTasks.ts + two test files (dead after the server-component pivot).
+- vitest.config.ts: added exclude ["**/.claude/**"] — stale worktree copies from the Agent tool's isolation were being picked up (147 count was inflated; real count is 122 post-exclude).
+- Tests +20: mappers (6), approval (4), supabase-task-repository builder-chain (6), Board shell + hydration (4).
+- typecheck 0, lint clean, 122/122, build compiles.
+- F12 TODO: wire proposal-row lookup + token-hash compare into assertApprovalContext. The call-sites already pass a context.
+
 2026-04-21 F04 open — beta allowlist enforcement
 - PR #22 (F03) merged 98c0a41 on main. F03 passes:true. Codex re-review clean after ?next= round-trip fix.
 - F04 on feat/v0.4-F04-beta-allowlist. Implemented per features.json steps:

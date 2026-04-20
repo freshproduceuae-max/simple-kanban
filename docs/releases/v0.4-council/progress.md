@@ -23,7 +23,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F02 | Supabase schema migrations (board + Council tables) | #19 + #21 | ☑ |
 | F03 | Magic-link auth via `@supabase/ssr` | #22 | ☑ |
 | F04 | v0.4-beta invite allowlist enforcement | #23 | ☑ |
-| F05 | Board migration from localStorage to Supabase | — | ☐ |
+| F05 | Board migration from localStorage to Supabase | #24 | ☑ |
 | F06 | Apply canonical v0.4 design tokens to existing UI | — | ☐ |
 | F07 | Bottom-shelf scaffold | — | ☐ |
 | F08 | Thinking-stream component | — | ☐ |
@@ -97,6 +97,27 @@ Newest on top. One line per working beat.
 ### 2026-04-20 — Process note: response-header convention dropped mid-session
 
 - CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
+
+### 2026-04-21 — F05 Codex P1 fix — boundary restored (factory moved into lib/persistence/**)
+
+- Codex P1: `lib/board/get-task-repository.ts` imported `createServerClient` from `lib/supabase/**` and constructed `SupabaseTaskRepository` inside the board layer. Functionally fine, but it reintroduced the exact coupling F01 was meant to prevent and set a precedent for pulling Supabase plumbing into product modules. Real blocker.
+- Moved the request-bound factory to `lib/persistence/server.ts#getTaskRepository()`. Board code now consumes the interface only. Deleted `lib/board/get-task-repository.ts`.
+- Extracted `getAuthedUserId()` into `lib/auth/current-user.ts` so Server Actions don't reach into the Supabase client for auth either. `lib/board/actions.ts` no longer imports anything from `@/lib/supabase/**` (grep-verified).
+- Added an F05 regression guard to the boundary-rule test: `lib/board/**` importing `@supabase/ssr` must fail with `boundaries/external`. 5/5 pass.
+
+### 2026-04-21 — F05 open (board migration: localStorage → Supabase)
+
+- PR #23 merged (`74bee1a`). F04 GREEN.
+- F05 opens on `feat/v0.4-F05-board-migration`. Implemented:
+  - `lib/persistence/supabase-task-repository.ts` — real `TaskRepository` over Supabase. Filters every query by `user_id` (defense-in-depth beside RLS), surfaces errors as thrown `Error`, refuses a missing `ApprovalContext` on every mutation.
+  - `lib/board/approval.ts` — `mintUserApprovalContext()` generates a UUID `proposalId` + 32-byte base64url `approvalToken` for every direct user action. Council-originated proposals get theirs from F12's flow; the repository contract is uniform either way.
+  - `lib/board/mappers.ts` — `TaskRow` ↔ v0.1 `Task` shape so `components/**` don't move. `position = createdAt` preserves v0.1 insertion order across reloads. `overdue_at` is an end-of-day UTC timestamp slice.
+  - `lib/board/actions.ts` — Server Actions: `listTasks`, `create`, `edit`, `move`, `delete`, `migrateLocalTasks`. Each resolves the authed user from the Supabase session, mints an `ApprovalContext`, calls the repository, and `revalidatePath('/')`. Uniform `ActionResult<T>` return so the client can roll back optimistic updates cleanly.
+  - `app/page.tsx` — now a server component: fetches tasks via `listTasksAction()`, renders a calm alert on failure, hands the success list to the client `Board`.
+  - `components/Board.tsx` — hydrates from `initialTasks`, applies optimistic updates for create/edit/move/delete, rolls back + shows a `role="alert"` banner on server failure, displays a `Saving…` indicator while a transition is pending. One-time v0.1 localStorage hoist on mount: if the server list is empty but `kanban.tasks` has rows, migrates them up and clears local. Three-column layout untouched.
+  - Removed dead `lib/useTasks.ts` + its two test files (now that the board hydrates from the server).
+- Tests (+20): mappers (6), approval context (4), `SupabaseTaskRepository` builder-chain contract (6), Board shell + hydration (4 — extended the existing shell test). Plus a vitest `exclude` for `.claude/worktrees/**` so stale worktree copies stop polluting the test run.
+- 122/122 green post-exclude. typecheck 0, lint clean, build compiles.
 
 ### 2026-04-21 — F04 open (beta allowlist enforcement)
 

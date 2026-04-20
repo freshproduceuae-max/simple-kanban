@@ -67,4 +67,18 @@ describe('@supabase/* import boundary (F01)', { timeout: 30_000 }, () => {
     const boundaryErrors = result.messages.filter((m: Linter.LintMessage) => m.ruleId === BOUNDARY_RULE);
     expect(boundaryErrors).toHaveLength(0);
   });
+
+  // F05 regression guard — product modules (board, council, etc.) must
+  // not reach into Supabase client plumbing directly. They consume
+  // repository interfaces from lib/persistence/**; the request-bound
+  // factories live in lib/persistence/server.ts. If this test ever
+  // fails, the cure is to add a factory to lib/persistence/**, not to
+  // whitelist the product module.
+  it('blocks @supabase/ssr imports from lib/board/** (disallowed)', async () => {
+    const [result] = await eslint.lintText(FIXTURE_CODE, {
+      filePath: 'lib/board/__fixtures__/disallowed.ts',
+    });
+    const boundaryErrors = result.messages.filter((m: Linter.LintMessage) => m.ruleId === BOUNDARY_RULE);
+    expect(boundaryErrors.length).toBeGreaterThan(0);
+  });
 });
