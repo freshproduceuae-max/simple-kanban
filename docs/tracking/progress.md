@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`), F06 merged (#25 `4801ef1`). F07 Council shelf scaffold open on `feat/v0.4-F07-council-shelf`.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`), F06 merged (#25 `4801ef1`), F07 merged (#26 `bc8a807`). F08 thinking-stream open on `feat/v0.4-F08-thinking-stream`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,11 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F07 close (GREEN) + F08 open (thinking-stream)
+
+- PR #26 merged (`bc8a807`). F07 `passes: true`. Codex re-review clean after the strip-click fix.
+- F08 opens on `feat/v0.4-F08-thinking-stream` — real `ThinkingStream` component. Source-mode consumes `AsyncIterable<string>` (Anthropic SDK / Web ReadableStream / SSE); controlled-mode takes `tokens[] + isStreaming`. One span per chunk (preserves producer cadence per §9.2), `.thinking-stream-token` CSS animation 50ms opacity 0→1 with `--motion-ease-standard`, muted steady cursor in `text-ink-500`, `role="status" aria-live="polite"`. `prefers-reduced-motion` honored. +5 tests → 183/183.
 
 ### 2026-04-21 — F06 close (GREEN) + F07 open (Council shelf scaffold)
 

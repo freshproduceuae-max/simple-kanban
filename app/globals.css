@@ -91,3 +91,27 @@ body {
     text-wrap: balance;
   }
 }
+
+/*
+ * F08 — Thinking-stream token fade-in.
+ *
+ * Each streamed chunk enters at opacity 0 and fades to 1 over roughly
+ * 50ms. `forwards` keeps the chunk at full opacity after the single
+ * animation pass so older chunks do not re-animate when new ones arrive.
+ * Duration + easing are design-system.md §9.2-compliant.
+ */
+@keyframes thinking-stream-token-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.thinking-stream-token {
+  animation: thinking-stream-token-fade-in 50ms var(--motion-ease-standard) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-stream-token {
+    animation: none;
+    opacity: 1;
+  }
+}
