@@ -66,18 +66,29 @@ export function ThinkingStream({
   useEffect(() => {
     if (!source) return;
     let cancelled = false;
+    // Capture the iterator explicitly so cleanup can call return() on
+    // it. A plain `for await (... of source)` hides the iterator and
+    // leaves no handle to ask the producer to stop — which means a
+    // real Anthropic SDK / SSE / ReadableStream would keep running
+    // after unmount, burning tokens and bandwidth. Per the async-
+    // iteration spec, `return()` is the cooperative shutdown hook;
+    // if a producer omits it we fall through and the local cancelled
+    // flag at least keeps us from emitting post-unmount state.
+    const iterator = source[Symbol.asyncIterator]();
     const chunks: string[] = [];
     setCollectedTokens([]);
     setInternalStreaming(true);
 
     (async () => {
       try {
-        for await (const chunk of source) {
+        while (true) {
+          const { value, done } = await iterator.next();
           if (cancelled) return;
-          chunks.push(chunk);
+          if (done) break;
+          chunks.push(value);
           // Functional update so React batches arrivals at native
           // cadence — we do not throttle, flatten, or jitter.
-          setCollectedTokens((prev) => [...prev, chunk]);
+          setCollectedTokens((prev) => [...prev, value]);
         }
         if (cancelled) return;
         setInternalStreaming(false);
@@ -91,6 +102,9 @@ export function ThinkingStream({
 
     return () => {
       cancelled = true;
+      // Cooperative shutdown. Swallow errors from return() itself —
+      // it is a best-effort signal; the producer may ignore it.
+      void Promise.resolve(iterator.return?.()).catch(() => {});
     };
   }, [source]);
 
