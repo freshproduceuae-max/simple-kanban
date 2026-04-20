@@ -192,7 +192,7 @@
         "Dispatch Critic only when risk >= threshold (env COUNCIL_CRITIC_RISK_THRESHOLD default 'medium')",
         "Fail-quiet to UI; emit structured-state email via F17 on failure"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F12",
