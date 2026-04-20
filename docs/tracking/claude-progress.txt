@@ -3,6 +3,13 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F05 Codex P1 fix — boundary restored
+- Codex P1: lib/board/get-task-repository.ts was building the repo from createServerClient inside the board layer. Functionally OK but it reintroduced the F01 coupling and set a bad precedent for product code. Real blocker.
+- Moved factory to lib/persistence/server.ts#getTaskRepository(). Deleted lib/board/get-task-repository.ts.
+- Extracted getAuthedUserId() to lib/auth/current-user.ts so actions.ts doesn't import from lib/supabase for auth either. lib/board/** now grep-clean of supabase imports (only comments mention it).
+- Added F05 regression guard to lib/__tests__/boundary-rule.test.ts: lib/board/** importing @supabase/ssr fails boundaries/external. 5/5.
+- typecheck 0, lint clean, 123/123 green, build compiles.
+
 2026-04-21 F05 open — board migration from localStorage to Supabase
 - PR #23 (F04) merged 74bee1a. F04 passes:true.
 - F05 on feat/v0.4-F05-board-migration. Big feature, shipped as one PR:

@@ -1,10 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createServerClient } from '@/lib/supabase/server';
-import { getTaskRepository } from './get-task-repository';
+import { getTaskRepository } from '@/lib/persistence/server';
 import { mintUserApprovalContext } from './approval';
 import { dueDateToOverdueAt, taskRowToTask } from './mappers';
+import { getAuthedUserId } from '@/lib/auth/current-user';
 import type { Task, TaskStatus } from '@/lib/types';
 
 /**
@@ -25,16 +25,9 @@ import type { Task, TaskStatus } from '@/lib/types';
 
 export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-async function requireUserId(): Promise<string> {
-  const supabase = createServerClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw new Error('not-authenticated');
-  return data.user.id;
-}
-
 export async function listTasksAction(): Promise<ActionResult<Task[]>> {
   try {
-    const userId = await requireUserId();
+    const userId = await getAuthedUserId();
     const rows = await getTaskRepository().listForUser(userId);
     return { ok: true, value: rows.map(taskRowToTask) };
   } catch (e) {
@@ -49,7 +42,7 @@ export async function createTaskAction(input: {
   status: TaskStatus;
 }): Promise<ActionResult<Task>> {
   try {
-    const userId = await requireUserId();
+    const userId = await getAuthedUserId();
     const title = input.title.trim();
     if (!title) return { ok: false, error: 'Title is required.' };
 
@@ -86,7 +79,7 @@ export async function editTaskAction(input: {
   status: TaskStatus;
 }): Promise<ActionResult<Task>> {
   try {
-    const userId = await requireUserId();
+    const userId = await getAuthedUserId();
     const title = input.title.trim();
     if (!title) return { ok: false, error: 'Title is required.' };
 
@@ -110,7 +103,7 @@ export async function editTaskAction(input: {
 
 export async function moveTaskAction(input: { id: string; status: TaskStatus }): Promise<ActionResult<Task>> {
   try {
-    const userId = await requireUserId();
+    const userId = await getAuthedUserId();
     const row = await getTaskRepository().update({
       id: input.id,
       userId,
@@ -126,7 +119,7 @@ export async function moveTaskAction(input: { id: string; status: TaskStatus }):
 
 export async function deleteTaskAction(input: { id: string }): Promise<ActionResult<{ id: string }>> {
   try {
-    const userId = await requireUserId();
+    const userId = await getAuthedUserId();
     await getTaskRepository().delete({
       id: input.id,
       userId,
@@ -156,7 +149,7 @@ export async function migrateLocalTasksAction(input: {
   }>;
 }): Promise<ActionResult<{ migrated: number }>> {
   try {
-    const userId = await requireUserId();
+    const userId = await getAuthedUserId();
     const repo = getTaskRepository();
     const existing = await repo.listForUser(userId);
     if (existing.length > 0) {

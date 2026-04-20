@@ -98,6 +98,13 @@ Newest on top. One line per working beat.
 
 - CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
 
+### 2026-04-21 — F05 Codex P1 fix — boundary restored (factory moved into lib/persistence/**)
+
+- Codex P1: `lib/board/get-task-repository.ts` imported `createServerClient` from `lib/supabase/**` and constructed `SupabaseTaskRepository` inside the board layer. Functionally fine, but it reintroduced the exact coupling F01 was meant to prevent and set a precedent for pulling Supabase plumbing into product modules. Real blocker.
+- Moved the request-bound factory to `lib/persistence/server.ts#getTaskRepository()`. Board code now consumes the interface only. Deleted `lib/board/get-task-repository.ts`.
+- Extracted `getAuthedUserId()` into `lib/auth/current-user.ts` so Server Actions don't reach into the Supabase client for auth either. `lib/board/actions.ts` no longer imports anything from `@/lib/supabase/**` (grep-verified).
+- Added an F05 regression guard to the boundary-rule test: `lib/board/**` importing `@supabase/ssr` must fail with `boundaries/external`. 5/5 pass.
+
 ### 2026-04-21 — F05 open (board migration: localStorage → Supabase)
 
 - PR #23 merged (`74bee1a`). F04 GREEN.
