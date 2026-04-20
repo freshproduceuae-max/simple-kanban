@@ -61,7 +61,7 @@ describe('supabase migrations integrity (F02)', () => {
       createdTables.add(m[1]);
     }
 
-    for (const table of createdTables) {
+    for (const table of Array.from(createdTables)) {
       const rlsPattern = new RegExp(
         `alter\\s+table\\s+public\\.${table}\\s+enable\\s+row\\s+level\\s+security`,
       );
@@ -86,7 +86,7 @@ describe('supabase migrations integrity (F02)', () => {
       rlsTables.add(m[1]);
     }
 
-    for (const table of rlsTables) {
+    for (const table of Array.from(rlsTables)) {
       const policyPattern = new RegExp(`create\\s+policy\\s+\\S+\\s+on\\s+public\\.${table}`);
       expect(
         policyPattern.test(sql),

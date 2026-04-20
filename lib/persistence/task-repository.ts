@@ -12,14 +12,14 @@ export interface TaskRepository {
     userId: string;
     title: string;
     description?: string | null;
-    column: BoardColumn;
+    board_column: BoardColumn;
     position: number;
     approvalContext: ApprovalContext;
   }): Promise<TaskRow>;
   update(input: {
     id: string;
     userId: string;
-    patch: Partial<Pick<TaskRow, 'title' | 'description' | 'column' | 'position' | 'overdue_at'>>;
+    patch: Partial<Pick<TaskRow, 'title' | 'description' | 'board_column' | 'position' | 'overdue_at'>>;
     approvalContext: ApprovalContext;
   }): Promise<TaskRow>;
   delete(input: { id: string; userId: string; approvalContext: ApprovalContext }): Promise<void>;

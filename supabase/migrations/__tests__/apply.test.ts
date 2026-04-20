@@ -1,0 +1,179 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * F02 — real apply-time verification for migrations 001..010.
+ *
+ * Static SQL-text guards (see integrity.test.ts) catch "forgot RLS" class
+ * bugs but cannot catch syntax errors, reserved-word conflicts, bad
+ * foreign-key references, or policy-clause typos — all of which explode
+ * only at apply time. This test runs a real Postgres 16 (via `pglite`,
+ * WASM, no docker) end-to-end over the full migration chain.
+ *
+ * Why pglite: `supabase db reset` needs docker, which we don't yet wire
+ * into contributor loops or CI. pglite is a real Postgres process in
+ * Node; what applies here will apply in Supabase. It will NOT catch
+ * Supabase-specific surface (GoTrue, Realtime, storage) — those come in
+ * F05 / F20 when a docker-backed integration harness lands.
+ */
+describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, () => {
+  const migrationsDir = resolve(process.cwd(), 'supabase/migrations');
+
+  // Stub for Supabase-specific schema referenced by migrations:
+  //   - auth.users(id) is the FK target on every Council table
+  //   - auth.uid() is called by every RLS policy
+  // Both are provided by GoTrue in a real Supabase project; we reproduce
+  // just enough shape for the migrations to compile and apply.
+  const AUTH_SHIM_SQL = `
+    create extension if not exists "pgcrypto";
+    create schema if not exists auth;
+    create table if not exists auth.users (
+      id uuid primary key default gen_random_uuid(),
+      email text
+    );
+    create or replace function auth.uid() returns uuid
+      language sql stable
+      as $$ select null::uuid $$;
+
+    -- Supabase provisions these roles automatically; pglite does not.
+    -- Migration 009 revokes/grants against them, so they must exist.
+    do $do$
+    begin
+      if not exists (select from pg_roles where rolname = 'anon') then
+        create role anon;
+      end if;
+      if not exists (select from pg_roles where rolname = 'authenticated') then
+        create role authenticated;
+      end if;
+    end
+    $do$;
+  `;
+
+  let db: PGlite;
+
+  beforeAll(async () => {
+    // pgcrypto is a Postgres contrib extension, loaded into pglite via its
+    // extensions API. Migration 001 calls `create extension if not exists "pgcrypto"`.
+    db = await PGlite.create({ extensions: { pgcrypto } });
+    await db.exec(AUTH_SHIM_SQL);
+
+    // Apply every migration in lex order — same order `supabase db reset`
+    // would apply them. A single failure aborts the describe-block and
+    // the file path of the failing migration surfaces in the error.
+    const files = readdirSync(migrationsDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    for (const file of files) {
+      const sql = readFileSync(resolve(migrationsDir, file), 'utf8');
+      try {
+        await db.exec(sql);
+      } catch (err) {
+        throw new Error(
+          `migration ${file} failed to apply: ${(err as Error).message}`,
+        );
+      }
+    }
+  });
+
+  afterAll(async () => {
+    await db?.close();
+  });
+
+  it('creates every expected public table', async () => {
+    const expected = [
+      'tasks',
+      'council_sessions',
+      'council_turns',
+      'council_memory_summaries',
+      'council_proposals',
+      'critic_diffs',
+      'memory_recalls',
+      'user_preferences',
+      'council_metrics',
+    ];
+
+    const result = await db.query<{ tablename: string }>(
+      `select tablename from pg_tables where schemaname = 'public' order by tablename`,
+    );
+    const actual = result.rows.map((r) => r.tablename);
+
+    for (const table of expected) {
+      expect(actual, `expected public.${table} to exist after migrations`).toContain(table);
+    }
+  });
+
+  it('enables RLS on every created public table', async () => {
+    const result = await db.query<{ tablename: string; rowsecurity: boolean }>(
+      `select tablename, rowsecurity
+         from pg_tables
+        where schemaname = 'public'
+        order by tablename`,
+    );
+    for (const row of result.rows) {
+      expect(row.rowsecurity, `public.${row.tablename} must have RLS enabled`).toBe(true);
+    }
+  });
+
+  it('creates the council_metrics_daily view with security_invoker = true', async () => {
+    const viewExists = await db.query<{ viewname: string }>(
+      `select viewname from pg_views
+        where schemaname = 'public' and viewname = 'council_metrics_daily'`,
+    );
+    expect(viewExists.rows).toHaveLength(1);
+
+    // pg_class.reloptions is the canonical surface for view WITH (...) options.
+    const options = await db.query<{ reloptions: string[] | null }>(
+      `select reloptions from pg_class
+        where relname = 'council_metrics_daily' and relkind = 'v'`,
+    );
+    const opts = options.rows[0]?.reloptions ?? [];
+    expect(
+      opts.some((o) => o === 'security_invoker=true'),
+      'council_metrics_daily must be declared WITH (security_invoker = true) to honor base-table RLS',
+    ).toBe(true);
+  });
+
+  it('declares at least one policy per RLS-enabled public table', async () => {
+    const result = await db.query<{ tablename: string; policy_count: number }>(
+      `select t.tablename,
+              coalesce(p.policy_count, 0)::int as policy_count
+         from pg_tables t
+         left join (
+           select tablename, count(*)::int as policy_count
+             from pg_policies
+            where schemaname = 'public'
+            group by tablename
+         ) p on p.tablename = t.tablename
+        where t.schemaname = 'public'
+          and t.rowsecurity = true
+        order by t.tablename`,
+    );
+    for (const row of result.rows) {
+      expect(
+        row.policy_count,
+        `public.${row.tablename} has RLS on but no policies — table is unreachable`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('creates every hot-path index from migration 010', async () => {
+    const expectedIndexes = [
+      'council_turns_session_created_idx',
+      'council_sessions_user_started_idx',
+      'council_metrics_user_started_idx',
+      'council_proposals_user_status_expires_idx',
+      'council_memory_summaries_user_created_idx',
+    ];
+    const result = await db.query<{ indexname: string }>(
+      `select indexname from pg_indexes where schemaname = 'public'`,
+    );
+    const actual = new Set(result.rows.map((r) => r.indexname));
+    for (const idx of expectedIndexes) {
+      expect(actual.has(idx), `expected index ${idx} to exist`).toBe(true);
+    }
+  });
+});
