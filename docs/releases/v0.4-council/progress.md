@@ -94,6 +94,10 @@ Kept short. Move to PRD §17 if an item changes product shape.
 
 Newest on top. One line per working beat.
 
+### 2026-04-20 — Process note: response-header convention dropped mid-session
+
+- CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
+
 ### 2026-04-20 — F01 GREEN, F02 open
 
 - PR #20 merged as `e1025d2` on main. F01 (`passes: true`) ledger flipped. Codex re-review clean on real ESLint-enforcement test (disallowed lib/council, app paths fire boundaries/external; allowed lib/persistence, lib/supabase paths do not).
