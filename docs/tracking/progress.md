@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`). F05 board migration open on `feat/v0.4-F05-board-migration`.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`). F06 design tokens open on `feat/v0.4-F06-design-tokens`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,11 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F05 close (GREEN) + F06 open (design tokens)
+
+- PR #24 merged (`359ea3a`). F05 `passes: true`. Codex re-review clean after the boundary fix commit moved the request-bound factory into `lib/persistence/server.ts` and added a regression-guard test.
+- F06 opens on `feat/v0.4-F06-design-tokens` — canonical color/type/spacing/elevation/motion tokens in `globals.css`, `next/font` for Fraunces + IBM Plex Sans + JetBrains Mono, tokens threaded through Board/Column/TaskCard/TaskDialog/SignIn. 46 new tests (45 token-integrity it.each + legacy-name ban + 3 layout-font source assertions). 169/169 green.
 
 ### 2026-04-21 — F04 close (GREEN) + F05 open (board migration)
 

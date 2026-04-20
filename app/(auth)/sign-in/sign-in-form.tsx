@@ -26,24 +26,25 @@ export function SignInForm({ next = '/' }: { next?: string }) {
       <div
         role="status"
         aria-live="polite"
-        className="space-y-2 rounded border border-slate-300 bg-slate-50 p-4 text-sm"
+        className="space-y-space-2 rounded border border-border-default bg-surface-shelf p-space-4 text-size-sm"
       >
-        <p className="font-medium">Check your inbox.</p>
-        <p className="text-slate-600">
-          A sign-in link is on its way to <span className="font-mono">{result.email}</span>. The
-          link expires shortly — open it from the same device if you can.
+        <p className="font-weight-medium text-ink-900">Check your inbox.</p>
+        <p className="text-ink-700">
+          A sign-in link is on its way to{' '}
+          <span className="font-family-mono">{result.email}</span>. The link expires shortly — open
+          it from the same device if you can.
         </p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4" noValidate>
+    <form onSubmit={onSubmit} className="space-y-space-4" noValidate>
       {/* Forwarded to `sendMagicLink`, re-sanitized server-side via
           `buildEmailRedirectTo` before it reaches Supabase. */}
       <input type="hidden" name="next" value={next} />
-      <label className="block space-y-1">
-        <span className="text-sm">Email</span>
+      <label className="block space-y-space-1">
+        <span className="text-size-sm text-ink-700">Email</span>
         <input
           type="email"
           name="email"
@@ -51,12 +52,12 @@ export function SignInForm({ next = '/' }: { next?: string }) {
           required
           disabled={pending}
           aria-invalid={result?.ok === false || undefined}
-          className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-base outline-none focus:border-slate-600 disabled:opacity-60"
+          className="w-full rounded border border-border-default bg-surface-card px-space-3 py-space-2 text-size-md text-ink-900 outline-none focus:shadow-ring-focus disabled:opacity-60"
         />
       </label>
 
       {result?.ok === false && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-size-sm text-accent-terra-700">
           {result.error}
         </p>
       )}
@@ -64,7 +65,7 @@ export function SignInForm({ next = '/' }: { next?: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-60"
+        className="w-full rounded bg-ink-900 px-space-4 py-space-2 text-size-sm font-weight-medium text-surface-card transition-colors duration-duration-fast ease-ease-standard hover:bg-ink-700 disabled:opacity-60"
       >
         {pending ? 'Sending…' : 'Send magic link'}
       </button>

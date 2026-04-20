@@ -24,7 +24,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F03 | Magic-link auth via `@supabase/ssr` | #22 | ☑ |
 | F04 | v0.4-beta invite allowlist enforcement | #23 | ☑ |
 | F05 | Board migration from localStorage to Supabase | #24 | ☑ |
-| F06 | Apply canonical v0.4 design tokens to existing UI | — | ☐ |
+| F06 | Apply canonical v0.4 design tokens to existing UI | #25 | ☑ |
 | F07 | Bottom-shelf scaffold | — | ☐ |
 | F08 | Thinking-stream component | — | ☐ |
 | F09 | Researcher agent (web + memory, fail-visible) | — | ☐ |
@@ -97,6 +97,22 @@ Newest on top. One line per working beat.
 ### 2026-04-20 — Process note: response-header convention dropped mid-session
 
 - CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
+
+### 2026-04-21 — F06 open (canonical v0.4 design tokens applied)
+
+- PR #24 merged (`359ea3a`). F05 GREEN.
+- F06 opens on `feat/v0.4-F06-design-tokens`. Implemented:
+  - `app/globals.css` — canonical tokens from design-system.md §4 (colors), §5 (typography), §6 (spacing), §7 (surfaces/elevation), §9 (motion). `html` + `body` now use `--color-surface-canvas` and `--color-ink-900`.
+  - `app/layout.tsx` — `next/font/google` registers Fraunces (display), IBM Plex Sans (body), JetBrains Mono (mono) with canonical weights. Variables hung on `<html>`; globals.css threads them into `--font-family-*`.
+  - `components/Board.tsx`, `components/Column.tsx`, `components/TaskCard.tsx`, `components/TaskDialog.tsx` — tokens applied (surfaces, text ink, borders, shadows, spacing, fonts). Overdue styling shifts red → terra to match the calm-voice contract. Focus rings use `shadow-ring-focus`.
+  - `app/(auth)/sign-in/page.tsx` + `sign-in-form.tsx` — same token pass.
+  - `app/page.tsx` — alert block repainted with token colors.
+- Three-column Kanban structure untouched (vision sacred). Mobile 375px still reads cleanly (canvas bg, col border, paper-feel cards). Desktop ≥768px picks up `md:gap-space-6` per §6.3.
+- Tests (+46):
+  - `app/__tests__/design-tokens.test.ts` — 45 `it.each` assertions that every canonical token from §4/§5/§6/§7/§9 is defined in globals.css (not just referenced), plus a legacy-name ban test (`--paper`, `--ink`, `--terra`).
+  - `app/__tests__/layout-fonts.test.tsx` — source-level assertions that layout.tsx imports the three canonical families from `next/font/google`, exposes the expected variable names, and applies all three on `<html>`.
+  - `components/__tests__/TaskCard.test.tsx` — overdue assertion follows the class rename (`border-red-500` → `border-accent-terra-500`).
+- 169/169 green. typecheck 0, lint clean, build compiles. No new npm packages (next/font is bundled).
 
 ### 2026-04-21 — F05 Codex P1 fix — boundary restored (factory moved into lib/persistence/**)
 

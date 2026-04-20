@@ -11,25 +11,30 @@ type Props = {
   children?: ReactNode;
 };
 
+/**
+ * Kanban column. Surface = canvas tone with a subtle pressed shift on
+ * drag-over, per design-system.md §6.3 + §7.2. Border instead of
+ * heavier chrome keeps the editorial-paper feel.
+ */
 export function Column({ id, label, count, children }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <section
       ref={setNodeRef}
       aria-label={label}
-      className={`flex min-h-[12rem] flex-1 flex-col rounded-lg p-3 transition-colors ${
-        isOver ? "bg-slate-200" : "bg-slate-100"
+      className={`flex min-h-[12rem] flex-1 flex-col rounded-lg border border-border-default p-space-3 transition-colors duration-duration-fast ease-ease-standard ${
+        isOver ? "bg-surface-pressed" : "bg-surface-canvas"
       }`}
     >
-      <header className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">{label}</h2>
-        <span className="rounded bg-slate-200 px-2 text-xs text-slate-600">
+      <header className="mb-space-2 flex items-center justify-between">
+        <h2 className="text-size-sm font-weight-semibold text-ink-900">{label}</h2>
+        <span className="rounded bg-surface-pressed px-space-2 text-size-xs text-ink-700">
           {count}
         </span>
       </header>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-space-2">
         {count === 0 ? (
-          <p className="text-sm text-slate-400">No tasks</p>
+          <p className="text-size-sm text-ink-500">No tasks</p>
         ) : (
           children
         )}

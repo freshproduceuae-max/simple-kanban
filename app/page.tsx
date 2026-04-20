@@ -14,8 +14,11 @@ export default async function Page() {
   const result = await listTasksAction();
   if (!result.ok) {
     return (
-      <main className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
-        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+      <main className="mx-auto flex max-w-6xl flex-col gap-space-4 px-space-4 py-space-6">
+        <p
+          role="alert"
+          className="rounded border border-accent-terra-500 bg-surface-card p-space-3 text-size-sm text-accent-terra-700"
+        >
           I couldn&apos;t load the board right now. {result.error}
         </p>
       </main>

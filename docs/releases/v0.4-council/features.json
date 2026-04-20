@@ -109,7 +109,7 @@
         "Apply tokens to existing board UI (background, columns, cards, task dialog)",
         "Verify at 375px mobile + 1280px desktop per design-system.md §6.2-§6.3"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F07",
