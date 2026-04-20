@@ -20,7 +20,16 @@ create policy council_metrics_owner_insert on public.council_metrics
   for insert with check (auth.uid() = user_id);
 
 -- Daily per-user token totals for F22 enforcement.
-create or replace view public.council_metrics_daily as
+--
+-- SECURITY NOTE: a plain public view over an RLS-protected table runs with
+-- the view-owner's privileges by default (security_definer-ish), which would
+-- bypass `council_metrics` RLS and leak cross-user aggregates. We use
+-- `security_invoker = true` (Postgres 15+, supported on Supabase) so the
+-- view executes with the CALLER's privileges and therefore honors the
+-- owner-only RLS policy on the base table.
+drop view if exists public.council_metrics_daily;
+create view public.council_metrics_daily
+  with (security_invoker = true) as
   select
     user_id,
     date_trunc('day', call_started_at) as day,
@@ -29,3 +38,7 @@ create or replace view public.council_metrics_daily as
     count(*) filter (where outcome = 'error') as error_count
   from public.council_metrics
   group by user_id, date_trunc('day', call_started_at);
+
+-- Belt-and-suspenders: revoke direct grants and re-grant only to authenticated.
+revoke all on public.council_metrics_daily from public, anon;
+grant select on public.council_metrics_daily to authenticated;
