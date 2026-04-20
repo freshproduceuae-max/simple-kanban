@@ -76,7 +76,7 @@
         "In /auth/callback, reject the callback if the authenticated email is not on the list",
         "Surface a calm honest sentence on rejection"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F05",

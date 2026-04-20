@@ -3,6 +3,18 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F04 open — beta allowlist enforcement
+- PR #22 (F03) merged 98c0a41 on main. F03 passes:true. Codex re-review clean after ?next= round-trip fix.
+- F04 on feat/v0.4-F04-beta-allowlist. Implemented per features.json steps:
+  * app/auth/callback/route.ts — after successful exchangeCodeForSession, call supabase.auth.getUser() and run isAllowed(email) against COUNCIL_BETA_ALLOWLIST. On miss: supabase.auth.signOut() (session cookie must not survive the redirect) then NextResponse.redirect(/sign-in?error=not_on_allowlist). Deny-by-default when the env var is unset/empty (readAllowlist returns [], isAllowed returns false).
+  * lib/auth/sign-in-error.ts — new signInErrorMessage(code) translator. 'not_on_allowlist' → calm first-person sentence per design-system voice: "This address isn't on the v0.4 beta list yet. If you think it should be, reply to the invite and I will add it." 'missing_code' → helpful request-a-new-one line. Unknown strings pass through unchanged so we never swallow a Supabase provider message.
+  * app/(auth)/sign-in/page.tsx — reads searchParams?.error, translates via signInErrorMessage, renders role="alert" red block above the form.
+- Tests:
+  * lib/auth/__tests__/sign-in-error.test.ts — 4 tests. Null/undefined/empty → null. 'not_on_allowlist' → contains "beta list" + "reply to the invite", and an ASCII-only check via charCodeAt loop (not regex /u flag — tsc target rejects it). 'missing_code' → contains "sign-in link" + "request a new one". Unknown passthrough preserved.
+  * app/auth/callback/__tests__/route.test.ts — 8 integration tests via vi.mock('@/lib/supabase/server') with scripted exchangeCodeForSession/getUser/signOut mocks. Covers: missing_code redirect (no exchange), provider error passthrough (signOut NOT called), allowlist miss tears session down (signOut called once), deny-by-default when env unset, happy path → /, ?next=/history honored, open-redirect //evil.com stripped.
+- 147/147 pass (136 → 147, +11). typecheck 0, lint clean, build compiles.
+- Note: COUNCIL_BETA_ALLOWLIST is case-insensitive comma-separated list; readAllowlist already trims + lowercases. isAllowed returns false on empty list (deny-by-default), which is the property F04 depends on.
+
 2026-04-20 Process lapse — response header dropped mid-session
 - CD flagged that the 2-line header from project-planning/response-header-convention.md was missing across the post-compaction batch (Phase 10 close, F01 PR #20 open/merge, F02 PR #21 open — roughly 6 replies).
 - Root cause: session resumed from compaction with an instruction to "pick up the last task as if the break never happened," and the header convention was not re-primed from CLAUDE.md on resume. The convention is mandatory per CLAUDE.md ("Response header: every reply to the Creative Director starts with the 2-line header…").

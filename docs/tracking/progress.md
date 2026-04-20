@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`). F03 magic-link auth open on `feat/v0.4-F03-magic-link-auth`.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`). F04 beta-allowlist enforcement open on `feat/v0.4-F04-beta-allowlist`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,11 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F03 close (GREEN) + F04 open (beta allowlist)
+
+- PR #22 merged (`98c0a41`). F03 `passes: true`. Codex re-review clean after fix commit restored the `?next=` round-trip (middleware → sign-in page → form hidden input → `sendMagicLink` → `buildEmailRedirectTo` → callback).
+- F04 opens on `feat/v0.4-F04-beta-allowlist` — post-exchange allowlist enforcement in `/auth/callback`, `signInErrorMessage()` translator for calm rejection copy. 11 new tests (4 translator + 8 callback integration via mocked Supabase server client). 147/147 green.
 
 ### 2026-04-21 — F02 close (GREEN) + F03 open (magic-link auth)
 
