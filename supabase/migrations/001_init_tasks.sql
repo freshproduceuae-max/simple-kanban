@@ -8,7 +8,7 @@ create table if not exists public.tasks (
   user_id       uuid not null references auth.users(id) on delete cascade,
   title         text not null,
   description   text,
-  column        text not null check (column in ('todo','in_progress','done')),
+  board_column  text not null check (board_column in ('todo','in_progress','done')),
   position      integer not null default 0,
   overdue_at    timestamptz,
   created_at    timestamptz not null default now(),
@@ -16,7 +16,7 @@ create table if not exists public.tasks (
 );
 
 create index if not exists tasks_user_column_position_idx
-  on public.tasks (user_id, column, position);
+  on public.tasks (user_id, board_column, position);
 
 alter table public.tasks enable row level security;
 

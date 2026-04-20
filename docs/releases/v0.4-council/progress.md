@@ -20,7 +20,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | ID | Description | PR | Passed |
 |---|---|---|---|
 | F01 | Persistence + Supabase boundary scaffold | #19 + #20 | ☑ |
-| F02 | Supabase schema migrations (board + Council tables) | — | ☐ |
+| F02 | Supabase schema migrations (board + Council tables) | #19 + #21 | ☑ |
 | F03 | Magic-link auth via `@supabase/ssr` | — | ☐ |
 | F04 | v0.4-beta invite allowlist enforcement | — | ☐ |
 | F05 | Board migration from localStorage to Supabase | — | ☐ |
@@ -93,6 +93,24 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-20 — Process note: response-header convention dropped mid-session
+
+- CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
+
+### 2026-04-20 — F02 apply-time test (Codex P1 fix) + real bug caught
+
+- Codex P1 on PR #21: "static SQL-text test is insufficient — F02 requires real apply-time verification before passes:true." Approved.
+- Added `@electric-sql/pglite ^0.4.4` as devDep — real Postgres 16 in WASM, no docker.
+- New test `supabase/migrations/__tests__/apply.test.ts` applies 001..010 end-to-end through pglite with a minimal `auth` schema shim (auth.users, auth.uid(), anon/authenticated roles) and asserts every expected table + RLS on + `security_invoker = true` on `council_metrics_daily` + every hot-path index present.
+- **Real bug caught immediately:** `column` is a Postgres reserved keyword. Migration 001 failed to apply (`syntax error at or near "column"`). Renamed `tasks.column` → `tasks.board_column` in migration, check constraint, index, `TaskRow` type, and `TaskRepository` create/update signatures. This validates the whole reason for the apply-time test: static SQL-text tests could not have caught this.
+- Fixed incidental `--target` / Set-iteration tsc errors in integrity.test.ts by wrapping with `Array.from()`.
+- 116/116 tests pass (89 + 22 integrity + 5 apply-time).
+
+### 2026-04-20 — F01 GREEN, F02 open
+
+- PR #20 merged as `e1025d2` on main. F01 (`passes: true`) ledger flipped. Codex re-review clean on real ESLint-enforcement test (disallowed lib/council, app paths fire boundaries/external; allowed lib/persistence, lib/supabase paths do not).
+- F02 opens on `feat/v0.4-F02-schema-migrations`. Body already landed in scaffolding; this PR flips `passes: true` and adds `supabase/migrations/__tests__/integrity.test.ts` — 22 assertions covering contiguous numbering (001..010) + every `create table public.*` has matching `enable row level security` in the same file + every RLS-enabled table has at least one policy.
 
 ### 2026-04-20 — Phase 10 GREEN + Phase 11 open (F01)
 

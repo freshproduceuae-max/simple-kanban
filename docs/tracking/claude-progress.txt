@@ -3,6 +3,29 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 Process lapse — response header dropped mid-session
+- CD flagged that the 2-line header from project-planning/response-header-convention.md was missing across the post-compaction batch (Phase 10 close, F01 PR #20 open/merge, F02 PR #21 open — roughly 6 replies).
+- Root cause: session resumed from compaction with an instruction to "pick up the last task as if the break never happened," and the header convention was not re-primed from CLAUDE.md on resume. The convention is mandatory per CLAUDE.md ("Response header: every reply to the Creative Director starts with the 2-line header…").
+- Correction: header restored from this reply forward. No prior replies will be retroactively edited — the transcript is the record.
+- Prevention rule (candidate for CLAUDE.md self-improvement block if it repeats):
+  * After any /compact or session-resume, the FIRST action before any tool call or reply body is to re-check CLAUDE.md §Workflow Rules for mandatory response conventions. Treat compaction as a fresh session for protocol purposes, not for state.
+- Logging this lapse here rather than in CLAUDE.md pending CD call on whether one miss warrants a new rule or whether the existing rule already suffices.
+
+2026-04-20 F02 Codex P1 fix — apply-time test caught a real bug
+- Codex P1 on PR #21: static SQL-text test is insufficient; F02 requires real apply-time verification. CD approved pglite devDep. Added @electric-sql/pglite ^0.4.4.
+- apply.test.ts: real Postgres 16 (WASM via pglite), auth schema shim (auth.users, auth.uid() returning null::uuid, anon + authenticated roles created via do-block because pglite doesn't provision them), applies 001..010 in lex order, asserts: every expected table exists, RLS on all, council_metrics_daily view present WITH (security_invoker=true) via reloptions, every hot-path index from migration 010 present, every RLS-enabled table has at least one policy.
+- Real bug surfaced on first apply: `column` is a Postgres reserved keyword; 001_init_tasks.sql failed with syntax error. Renamed tasks.column → tasks.board_column everywhere: SQL migration (column definition, check constraint, index), lib/persistence/types.ts TaskRow, lib/persistence/task-repository.ts create/update signatures (including the patch Pick<>).
+- This is exactly the class of defect Codex's blocker was designed to surface. The static-integrity test (22 assertions) still passes — it catches "forgot RLS" / "no policy". The apply-time test (5 assertions) catches syntax, reserved words, FK resolution, policy compilation. Different failure classes, both kept.
+- Incidental fix: tsc errors TS2802 on Set iteration in integrity.test.ts. Wrapped with Array.from(). Root cause is no explicit `target` in tsconfig.json (Next default doesn't set one); won't touch tsconfig without wider review.
+- 116/116 tests pass (89 + 22 integrity + 5 apply-time). typecheck 0, lint clean.
+- pglite notes for future phases: contrib extensions loaded via `new PGlite.create({ extensions: { pgcrypto } })`. Auth shim will likely be shared across F05/F20 test harnesses — candidate for extraction to a helper when the 2nd consumer arrives. Not extracted now (YAGNI).
+
+2026-04-20 F01 GREEN + F02 open
+- PR #20 merged as e1025d2 on main. Codex re-review clean after P1 fix: replaced config-shape test with real ESLint enforcement via ESLint.lintText({ filePath }) on four virtual fixtures. Added lib/__tests__/eslint.d.ts shim rather than pulling @types/eslint.
+- F02 opens on feat/v0.4-F02-schema-migrations. Body already landed in scaffolding (migrations 001-010). This PR flips F02 passes:true and adds supabase/migrations/__tests__/integrity.test.ts — 22 static guards: contiguous 001..010 numbering + every `create table public.X` followed by `alter table public.X enable row level security` in the same file + every RLS-enabled table has at least one policy. Views + indexes-only migrations naturally not caught (views inherit RLS; 010 creates no tables).
+- No local Supabase spin-up (docker) — left for F05/F20 integration when a real DB is necessary. Static guards catch the class of bug that actually costs us (forgot to RLS = cross-user leak) without requiring CI docker.
+- 111/111 tests pass (89 + 22 new). typecheck 0, lint clean.
+
 2026-04-20 Phase 10 close (GREEN) + Phase 11 open (F01)
 - PR #19 merged as c3bc60c on main. Phase 10 GREEN. Codex re-review clean.
 - Two blockers fixed in commit 536ec75: (1) tailwind.config.ts rewritten to canonical --color-*/--font-family-*/--shadow-*/--motion-* names only per design-system.md §11 (removed non-canonical --color-surface/--color-moss/--font-display/--shadow-card/--motion-duration-standard); (2) council_metrics_daily view now declared `with (security_invoker = true)` + `revoke all from public, anon; grant select to authenticated` - prevents cross-user aggregate leak via view-owner RLS bypass.

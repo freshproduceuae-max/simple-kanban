@@ -11,7 +11,7 @@ export interface TaskRow {
   user_id: string;
   title: string;
   description: string | null;
-  column: BoardColumn;
+  board_column: BoardColumn;
   position: number;
   overdue_at: string | null;
   created_at: string;
