@@ -158,7 +158,7 @@
         "Persist tool calls + findings into council_turns",
         "Fail-visible: on error, return an honest one-liner to the Consolidator"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F10",
