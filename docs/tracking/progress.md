@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — planning. Phase 06 Brand Identity closed GREEN. Phase 07 v0.4 PRD drafting on `chore/phase-07-v04-prd`.
+- **v0.4 Council** — planning. Phase 07 v0.4 PRD closed GREEN (PR #15, `2d97029`). Phase 08 Feature List drafting on `chore/phase-08-v04-feature-list`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -25,8 +25,8 @@ This is the cross-release view. Per-release progress lives under each release fo
 | 04 | Project rules | done | `CLAUDE.md` (root) |
 | 05 | Bootstrap | done (GREEN) | `docs/tracking/phase-05-bootstrap.md` |
 | 06 | Brand identity | done (GREEN) | `docs/tracking/phase-06-brand-identity.md`, `docs/design-system/design-system.md` |
-| 07 | PRD (per release) | drafting | `docs/tracking/phase-07-prd-input-queue.md`, `docs/tracking/phase-07-v04-prd-progress.md` |
-| 08 | Feature list | pending | — |
+| 07 | PRD (per release) | done (GREEN, v0.4) | `docs/releases/v0.4-council/prd.md`, `docs/tracking/phase-07-v04-prd-progress.md` |
+| 08 | Feature list | drafting (v0.4) | `docs/releases/v0.4-council/features.json`, `docs/tracking/phase-08-v04-feature-list-progress.md` |
 | 09 | Progress tracking | scaffolded | this file |
 | 10 | Scaffolding | pending | — |
 | 11 | Execution | pending | — |
@@ -42,6 +42,12 @@ Every working session appends one entry. Keep entries terse.
 - Opened Phase 06 Brand Identity prep on `chore/phase-06-brand-identity-queue`. Gemini + Codex prompts queued for Creative Director to paste. PR #2 resolution surfaced as a precondition (recommended: close unmerged, extract aesthetic direction as inspiration).
 - Queued v0.4 PRD inputs (Phase 07) at `docs/tracking/phase-07-prd-input-queue.md`.
 - Scaffolded this file and `claude-progress.txt` for Phase 09.
+
+### 2026-04-20 — Phase 07 close + Phase 08 open
+
+- Closed Phase 07 GREEN. PR #15 merged (`2d97029` on `main`). Canonical v0.4 PRD at `docs/releases/v0.4-council/prd.md` — 19 sections, all 5 `[CD PICK]` defaults stood (magic link, allowlist beta, forever retention + user purge at final, Vercel Analytics + `/admin/metrics`, 500k tokens/day cap). CD review ran as one-pass product-direction approval, not line-by-line audit.
+- Added second self-improvement rule to `CLAUDE.md`: "Begin every process by inferring, not asking." Retires decision-gate inflation across all future phases.
+- Opened Phase 08 v0.4 Feature List on `chore/phase-08-v04-feature-list`. Drafted `features.json` (32 features: 22 alpha / 4 beta / 6 final) mechanically derived from PRD. No `[CD PICK]` expected — feature list is translation, not design.
 
 ### 2026-04-20 — Phase 06 close + Phase 07 open
 

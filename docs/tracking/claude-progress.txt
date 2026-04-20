@@ -3,6 +3,13 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 Phase 07 close + Phase 08 open
+- Phase 07 closed GREEN. PR #15 merged as 2d97029 on main. Canonical v0.4 PRD at docs/releases/v0.4-council/prd.md (19 sections). All 5 [CD PICK] defaults stood: magic link, allowlist beta, forever retention + user purge at final, Vercel Analytics + /admin/metrics, 500k tokens/day cap.
+- CD review ran as one-pass product-direction approval. CD instruction: "if you need further review only, i suggest to make it more simpler read" - keep PR reports short.
+- Added second self-improvement rule to CLAUDE.md: "Begin every process by inferring, not asking." Retires decision-gate inflation.
+- Phase 08 opened on chore/phase-08-v04-feature-list. features.json drafted: 32 features, 22 alpha / 4 beta / 6 final. features-README.md explains fields + Phase 10/11 consumption contract. No [CD PICK] items - feature list is mechanical translation of PRD.
+- PR #16 to open next with these four files: features.json, features-README.md, phase-08-v04-feature-list-progress.md, updated progress.md + claude-progress.txt.
+
 2026-04-20 Phase 06 close + Phase 07 open
 - Phase 06 closed GREEN. PR #13 merged as cd8ea71 on main. docs/design-system/design-system.md is canonical for v0.4.
 - Gemini raw output frozen at docs/design-system/gemini-raw-output.md. Editorial-planner inspiration frozen at docs/design-system/inspiration/editorial-planner-direction.md.

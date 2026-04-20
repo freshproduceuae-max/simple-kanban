@@ -1,0 +1,534 @@
+{
+  "$schema": "../../../project-planning/08-feature-list/feature-list-prompt.md",
+  "release": "v0.4-council",
+  "generatedAt": "2026-04-20",
+  "derivedFrom": [
+    "docs/prd/vision.md",
+    "docs/releases/v0.4-council/prd.md",
+    "docs/design-system/design-system.md",
+    "CLAUDE.md"
+  ],
+  "milestoneTiers": {
+    "alpha": "v0.4.0-alpha prerelease (Creative Director only, Vercel preview)",
+    "beta": "v0.4.0-beta prerelease (internal + invited friends, Vercel preview)",
+    "final": "v0.4.0 release (public-ready single-user, Vercel production, merged to main)"
+  },
+  "features": [
+    {
+      "id": "F01",
+      "category": "persistence",
+      "description": "Scaffold lib/persistence/** typed repository interfaces and lib/supabase/** client+auth plumbing; wire CI invariant so only those two paths import @supabase/*.",
+      "order": 1,
+      "priority": "alpha",
+      "dependsOn": [],
+      "ui": false,
+      "steps": [
+        "Create lib/persistence/** with TaskRepository, CouncilMemoryRepository, SessionRepository, ProposalRepository interfaces",
+        "Create lib/supabase/** with createBrowserClient and createServerClient helpers via @supabase/ssr",
+        "Add CI rule (eslint-plugin-boundaries or bespoke grep check) blocking @supabase/* imports outside the two paths",
+        "Unit-test the boundary rule"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F02",
+      "category": "persistence",
+      "description": "Supabase schema migrations for board + Council memory + sessions + proposals: tasks, council_sessions, council_turns, council_memory_summaries, council_proposals, critic_diffs, memory_recalls, user_preferences.",
+      "order": 2,
+      "priority": "alpha",
+      "dependsOn": ["F01"],
+      "ui": false,
+      "steps": [
+        "Write Supabase migration for tasks table (columns from v0.1 card shape)",
+        "Write migrations for council_* tables per PRD §11.1",
+        "Add RLS policies: user sees only own rows",
+        "Seed local dev DB from migration"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F03",
+      "category": "auth",
+      "description": "Single-user magic-link auth via @supabase/ssr; sign-in page + session refresh middleware + sign-out.",
+      "order": 3,
+      "priority": "alpha",
+      "dependsOn": ["F01"],
+      "ui": true,
+      "steps": [
+        "Add /sign-in route with email input + magic-link submission",
+        "Add /auth/callback handler for token exchange",
+        "Add middleware.ts session refresh via @supabase/ssr",
+        "Add sign-out action",
+        "Block app routes behind auth; redirect unauthenticated to /sign-in"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F04",
+      "category": "auth",
+      "description": "v0.4-beta invite allowlist enforcement: block sign-in if email not on hardcoded allowlist in lib/auth/beta-allowlist.ts.",
+      "order": 4,
+      "priority": "alpha",
+      "dependsOn": ["F03"],
+      "ui": false,
+      "steps": [
+        "Create lib/auth/beta-allowlist.ts with type-safe string array",
+        "In /auth/callback, reject the callback if the authenticated email is not on the list",
+        "Surface a calm honest sentence on rejection"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F05",
+      "category": "board",
+      "description": "Migrate v0.1 board from localStorage to Supabase tasks table; preserve three-column layout; keep v0.1 task dialog behavior.",
+      "order": 5,
+      "priority": "alpha",
+      "dependsOn": ["F01", "F02", "F03"],
+      "ui": true,
+      "steps": [
+        "Swap localStorage reads for TaskRepository reads",
+        "Swap localStorage writes for TaskRepository writes guarded by the Council Write Gate contract (even if Council isn't wired yet, direct user actions still produce a proposalId + approvalToken)",
+        "Add loading, success, and error states per global CLAUDE.md",
+        "Preserve three-column layout behavior from v0.1"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F06",
+      "category": "design-system",
+      "description": "Apply canonical v0.4 design tokens (colors, typography via next/font, spacing, shadows, motion) to the existing v0.1 Kanban UI; no feature additions from v0.6 scope.",
+      "order": 6,
+      "priority": "alpha",
+      "dependsOn": [],
+      "ui": true,
+      "steps": [
+        "Register Fraunces, IBM Plex Sans, JetBrains Mono via next/font/google",
+        "Add --color-*, --space-*, --font-*, --shadow-*, --motion-* tokens to app/globals.css per design-system.md §4-§9",
+        "Extend tailwind.config.ts to consume the token namespace",
+        "Apply tokens to existing board UI (background, columns, cards, task dialog)",
+        "Verify at 375px mobile + 1280px desktop per design-system.md §6.2-§6.3"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F07",
+      "category": "council-ui",
+      "description": "Bottom shelf scaffold: collapsible drawer docked to the bottom of the board, respects iPhone SE width, uses --color-surface-shelf and --shadow-* tokens.",
+      "order": 7,
+      "priority": "alpha",
+      "dependsOn": ["F06"],
+      "ui": true,
+      "steps": [
+        "Create components/council-shelf/ with ShelfContainer, ShelfHeader, ShelfBody, ShelfToggle",
+        "Implement collapse/expand motion per design-system.md §9.3 (300ms, --motion-ease-standard)",
+        "Verify sticky-bottom behavior at 375px and shelf-width behavior at 1280px",
+        "Render Council turns as direct-on-surface editorial flow (no bubble chrome) per design-system.md §8.3"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F08",
+      "category": "council-ui",
+      "description": "Thinking-stream component: muted cursor + token-by-token reveal + variable cadence + 50ms fade per token; applied to every Council reply.",
+      "order": 8,
+      "priority": "alpha",
+      "dependsOn": ["F07"],
+      "ui": true,
+      "steps": [
+        "Create components/thinking-stream/ with a React component that consumes a streaming text source",
+        "Render a muted cursor in --color-ink-500 during generation",
+        "Animate each token opacity 0→1 over ~50ms",
+        "Vary inter-token delay in small bursts (no uniform machine-gun reveal)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F09",
+      "category": "council-agent",
+      "description": "Researcher agent: one agent, two sources (public web + internal board/memory); logs tool calls per call; fail-visible.",
+      "order": 9,
+      "priority": "alpha",
+      "dependsOn": ["F01", "F02"],
+      "ui": false,
+      "steps": [
+        "Create lib/council/researcher/ with Anthropic SDK wiring (server-only)",
+        "Implement web tool use (whichever web search path we pick at Phase 10) with per-call rate limiting per PRD §7",
+        "Implement memory read path via CouncilMemoryRepository",
+        "Persist tool calls + findings into council_turns",
+        "Fail-visible: on error, return an honest one-liner to the Consolidator"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "category": "council-agent",
+      "description": "Consolidator agent: user-facing voice; drafts responses; streams output; writes turn logs sync and session summaries async.",
+      "order": 10,
+      "priority": "alpha",
+      "dependsOn": ["F01", "F02", "F09"],
+      "ui": false,
+      "steps": [
+        "Create lib/council/consolidator/ with Anthropic SDK streaming wiring",
+        "Implement mode classification (Plan/Advise/Chat) from user input + session state",
+        "Emit streaming tokens over an SSE or ReadableStream endpoint for F08 consumption",
+        "Write turn log synchronously via CouncilMemoryRepository",
+        "Schedule session-end summary write to the cold-path queue",
+        "Fail-hard: retry once, then surface failure sentence"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "category": "council-agent",
+      "description": "Critic agent: risk-threshold dispatch; reviews Consolidator drafts; fail-quiet UI + loud server alert.",
+      "order": 11,
+      "priority": "alpha",
+      "dependsOn": ["F10"],
+      "ui": false,
+      "steps": [
+        "Create lib/council/critic/ with Anthropic SDK wiring",
+        "Implement risk tagging on Consolidator drafts (low/medium/high per PRD §9.2)",
+        "Dispatch Critic only when risk >= threshold (env COUNCIL_CRITIC_RISK_THRESHOLD default 'medium')",
+        "Fail-quiet to UI; emit structured-state email via F17 on failure"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "category": "council-server",
+      "description": "Council Write Gate server contract: proposals endpoint issues proposalId; approvals endpoint issues one-time approvalToken; task-mutation route handler rejects payloads missing both.",
+      "order": 12,
+      "priority": "alpha",
+      "dependsOn": ["F02"],
+      "ui": false,
+      "steps": [
+        "Create POST /api/council/proposals issuing proposalId and storing to council_proposals",
+        "Create POST /api/council/proposals/:id/approve issuing one-time approvalToken (hashed + short TTL)",
+        "Add payload-shape guard in task-mutation handlers (reject if missing approval metadata)",
+        "Unit test: direct task-mutation without proposalId is rejected",
+        "Unit test: expired proposal returns 410"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F13",
+      "category": "council-ui",
+      "description": "Proposal card UI + tap-to-approve flow: dashed border, no left-edge priority bar, minimal approval button with moss-tinted confirmation per design-system.md §8.4/§8.6.",
+      "order": 13,
+      "priority": "alpha",
+      "dependsOn": ["F07", "F12"],
+      "ui": true,
+      "steps": [
+        "Create components/proposal-card/ with dashed border + --shadow-proposal",
+        "Render approval button per design-system.md §8.6",
+        "On tap: scale(0.98) + moss-tinted flash per §9.3, then post approval, then animate into target column",
+        "On expiry: archive visually with a fade + explanation line"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F14",
+      "category": "council-mode",
+      "description": "Morning greeting flow: fires on first app-open per calendar day; memory-only (no live web); ≤ 200 chars; renders with thinking-stream.",
+      "order": 14,
+      "priority": "alpha",
+      "dependsOn": ["F07", "F08", "F10"],
+      "ui": true,
+      "steps": [
+        "Detect first-open per calendar day via session state",
+        "Assemble greeting prompt with allowed board signals only (todo/in_progress/done counts, overdue, top-1 staleness)",
+        "Enforce ≤ 200-char / 2-sentence cap on final rendered text",
+        "Route through Consolidator streaming; render with thinking-stream cursor",
+        "Fall through to the short re-entry line on subsequent same-day opens"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F15",
+      "category": "council-mode",
+      "description": "Chat mode: open conversation; memory-only Researcher; Critic below risk threshold; no proposal cards unless requested.",
+      "order": 15,
+      "priority": "alpha",
+      "dependsOn": ["F09", "F10", "F11"],
+      "ui": true,
+      "steps": [
+        "Route shelf input into Consolidator with mode hint 'chat'",
+        "Gate web research behind explicit user request",
+        "Respect token budget 10k per turn (enforced in F29)",
+        "Write turn logs synchronously"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F16",
+      "category": "council-mode",
+      "description": "Plan mode: topic → chip follow-ups → memo + draft tasks → proposal cards; Critic always on; web research enabled with per-session rate limit.",
+      "order": 16,
+      "priority": "alpha",
+      "dependsOn": ["F09", "F10", "F11", "F13"],
+      "ui": true,
+      "steps": [
+        "Route shelf input into Consolidator with mode hint 'plan'",
+        "Render up to three inline chips for timeline / audience / definition-of-done per design-system.md §8.5",
+        "Enable Researcher web path with ≤ 10 calls/session rate limit",
+        "Always run Critic on the draft",
+        "Surface proposal cards for each draft task in the shelf"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F17",
+      "category": "council-mode",
+      "description": "Advise mode: Council reads board + memory, surfaces recommendations, writes nothing unless the user taps; web off by default.",
+      "order": 17,
+      "priority": "alpha",
+      "dependsOn": ["F09", "F10", "F11"],
+      "ui": true,
+      "steps": [
+        "Route shelf input into Consolidator with mode hint 'advise'",
+        "Load current board snapshot via TaskRepository",
+        "Disable Researcher web path unless user explicitly asks; require confirmation before firing web",
+        "On user 'draft this': hand off to Plan mode's proposal-card path"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F18",
+      "category": "persistence",
+      "description": "Session turn logging: sync write of Researcher/Consolidator/Critic turn I/O per PRD §10.2 table; session-end summary writer queued async.",
+      "order": 18,
+      "priority": "alpha",
+      "dependsOn": ["F02", "F10"],
+      "ui": false,
+      "steps": [
+        "Write to council_turns on each turn lifecycle step",
+        "Detect session end (shelf close OR 30-min idle OR sign-out)",
+        "Schedule cold-path summary job that writes council_memory_summaries at session end",
+        "Increment modes-used histogram on session start"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F19",
+      "category": "council-ui",
+      "description": "Read-only Session history list view: columns per PRD §10.3 (timestamp, mode, title, duration, outcome, token cost); no search/filter at alpha/beta.",
+      "order": 19,
+      "priority": "alpha",
+      "dependsOn": ["F02", "F18"],
+      "ui": true,
+      "steps": [
+        "Add /history route rendering a read-only list view",
+        "Paginate by creation date desc",
+        "Derive session title from first user turn or Consolidator-picked topic at session end"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F20",
+      "category": "observability",
+      "description": "Error-email pipeline: Resend-backed, structured payload per PRD §14.1, dedup per-hour per (user × agent × failure_class), env-driven recipient.",
+      "order": 20,
+      "priority": "alpha",
+      "dependsOn": ["F01"],
+      "ui": false,
+      "steps": [
+        "Wire Resend via lib/observability/error-email.ts",
+        "Define failure_class enum and attach to every caught failure",
+        "Implement in-memory dedup window keyed by (user_id, agent, failure_class)",
+        "Read recipient from ERROR_EMAIL_RECIPIENT env var",
+        "Redact user turn content from stack traces"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F21",
+      "category": "observability",
+      "description": "Token + latency instrumentation from day one: capture per-call in/out tokens, first-token time, full-reply time, 429 count; emit to Vercel Analytics + custom table for per-agent breakdown.",
+      "order": 21,
+      "priority": "alpha",
+      "dependsOn": ["F09", "F10", "F11"],
+      "ui": false,
+      "steps": [
+        "Wrap Anthropic SDK calls with instrumentation (token counts, timings)",
+        "Emit events to Vercel Analytics via the Next.js App Router helper",
+        "Persist per-call metrics to a metrics table for per-agent breakdown in F27",
+        "Add counters for Anthropic 429, Supabase error, error-email failure"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F22",
+      "category": "observability",
+      "description": "Token-budget enforcement: soft warning at 80% of session ceiling, hard cut at 100%, per-user daily 500k cap with soft-pause + error-email on first hit.",
+      "order": 22,
+      "priority": "alpha",
+      "dependsOn": ["F10", "F20", "F21"],
+      "ui": true,
+      "steps": [
+        "Track cumulative tokens per session in Consolidator middleware",
+        "Emit inline '80% used' warning when threshold crossed",
+        "On 100%: return honest one-liner and close the session",
+        "Track per-user daily via cached counter backed by metrics table",
+        "On 500k/day cap: soft-pause + error-email (first hit per user per day)",
+        "Read cap from COUNCIL_TOKEN_CAP_DAILY env"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F23",
+      "category": "council-ui",
+      "description": "Critic-diff storage + 'How I got here' reveal: on Critic-changed turn, store diff in critic_diffs table; expandable in the shelf and Session history.",
+      "order": 23,
+      "priority": "beta",
+      "dependsOn": ["F11", "F19"],
+      "ui": true,
+      "steps": [
+        "Compute non-whitespace diff between pre-Critic and post-Critic drafts",
+        "Persist diff to critic_diffs with turn_id",
+        "Render 'How I got here' affordance on every Council turn",
+        "On expand: fetch and display Researcher findings + Critic diff + Consolidator changes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F24",
+      "category": "council-ui",
+      "description": "Memory-recall artifact: on Consolidator recalling a prior-session turn, write memory_recalls row AND render inline 'I remember you said X on [date]' line.",
+      "order": 24,
+      "priority": "beta",
+      "dependsOn": ["F10", "F18"],
+      "ui": true,
+      "steps": [
+        "Tag Consolidator recalls at synthesis time with source turn_id + snippet",
+        "Persist each recall to memory_recalls",
+        "Render recall line inline in the Council reply, styled per design-system.md §10 voice rules"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F25",
+      "category": "council-ui",
+      "description": "Transparency preferences: A/B/C/D selector at /settings/council; store in user_preferences (default B); UI honors pref on every Council reply (glyphs for C, inline dissent line for D).",
+      "order": 25,
+      "priority": "beta",
+      "dependsOn": ["F07", "F23"],
+      "ui": true,
+      "steps": [
+        "Add /settings/council page with four radios + live preview",
+        "Persist preference to user_preferences table (default 'B')",
+        "Wire preference into the shelf renderer: A suppresses 'How I got here'; C adds [R]/[C] source glyphs; D adds unresolved-dissent line"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F26",
+      "category": "observability",
+      "description": "Basic /admin/metrics dashboard (v0.4-beta cut): request counts, error rates, p50/p95 latency, 429 count, per-agent token totals.",
+      "order": 26,
+      "priority": "beta",
+      "dependsOn": ["F21"],
+      "ui": true,
+      "steps": [
+        "Create /admin/metrics route gated by role (single-user in v0.4 = the CD)",
+        "Render crude tables reading the metrics table from F21",
+        "Surface 429 count + Supabase error count + error-email failure count"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F27",
+      "category": "observability",
+      "description": "Per-agent /admin/metrics breakdown (v0.4 final): Researcher vs Consolidator vs Critic token share, latency histograms, failure rates per agent.",
+      "order": 27,
+      "priority": "final",
+      "dependsOn": ["F26"],
+      "ui": true,
+      "steps": [
+        "Extend /admin/metrics with per-agent grouping",
+        "Add simple histogram rendering (no heavy chart library)",
+        "Compute pass/fail against starting SLOs from PRD §13.3 and flag misses"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F28",
+      "category": "council-ui",
+      "description": "Full searchable + filterable Session history (v0.4 final): full-text search across turn content; filter by mode, date range, cost range, outcome.",
+      "order": 28,
+      "priority": "final",
+      "dependsOn": ["F19"],
+      "ui": true,
+      "steps": [
+        "Add Postgres text search index on council_turns.content",
+        "Extend /history with search box + filter controls",
+        "Paginate with keyset cursor for performance"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F29",
+      "category": "council-ui",
+      "description": "User-controlled session-history purge (v0.4 final): user can delete individual sessions or their full history; honors the 'forever by default' retention with an explicit off-switch.",
+      "order": 29,
+      "priority": "final",
+      "dependsOn": ["F19"],
+      "ui": true,
+      "steps": [
+        "Add per-session delete action in /history",
+        "Add 'delete all my history' action in /settings/council with two-step confirm",
+        "Cascade deletes through council_turns, council_memory_summaries, critic_diffs, memory_recalls for the user"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F30",
+      "category": "reliability",
+      "description": "Anthropic 429 soft-pause: shelf enters soft-pause state, client-side queue up to 30s, exponential backoff, then per-agent failure policy. Verified under a deliberately throttled tier-1 Anthropic account.",
+      "order": 30,
+      "priority": "final",
+      "dependsOn": ["F10"],
+      "ui": true,
+      "steps": [
+        "Detect 429 in Anthropic SDK wrapper",
+        "Enter soft-pause UI state (shelf shows calm 'I'll try again in a moment')",
+        "Implement exponential backoff queue (1s / 2s / 4s / 8s / 16s)",
+        "After 30s, fall through to per-agent failure path",
+        "Test under throttled Anthropic account and record the session artifact"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F31",
+      "category": "onboarding",
+      "description": "First-run onboarding: new user reaches a meaningful Council interaction in under 60 seconds. Stopwatched dry-run with three naïve users during final-release QA.",
+      "order": 31,
+      "priority": "final",
+      "dependsOn": ["F14", "F16"],
+      "ui": true,
+      "steps": [
+        "Design the first-run path: sign-in → greeting → first Plan-mode chip answered",
+        "Instrument the path timing",
+        "Run three naïve-user stopwatch sessions and capture the results in the release log",
+        "Revise + rerun if any user crosses 60s"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F32",
+      "category": "qa",
+      "description": "Mobile layout sign-off at iPhone SE width (375px): shelf behavior, board column snap-scroll, greeting readability, proposal card tap target per design-system.md §6.2.",
+      "order": 32,
+      "priority": "final",
+      "dependsOn": ["F05", "F07", "F13", "F14"],
+      "ui": true,
+      "steps": [
+        "Run mobile screenshot capture at 375px across every surface",
+        "Verify tap targets meet minimum 44px",
+        "Verify shelf does not occlude the active board column",
+        "File fixes as individual PRs; sign off when zero open items"
+      ],
+      "passes": false
+    }
+  ]
+}
