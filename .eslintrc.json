@@ -1,3 +1,40 @@
 {
-  "extends": ["next/core-web-vitals", "next/typescript"]
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "plugins": ["boundaries"],
+  "settings": {
+    "boundaries/elements": [
+      { "type": "supabase-plumbing", "pattern": "lib/supabase/**" },
+      { "type": "persistence", "pattern": "lib/persistence/**" },
+      { "type": "council", "pattern": "lib/council/**" },
+      { "type": "auth", "pattern": "lib/auth/**" },
+      { "type": "observability", "pattern": "lib/observability/**" },
+      { "type": "app", "pattern": "app/**" },
+      { "type": "components", "pattern": "components/**" },
+      { "type": "lib-other", "pattern": "lib/**" }
+    ],
+    "boundaries/include": ["lib/**", "app/**", "components/**", "middleware.ts"]
+  },
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "boundaries/external": [
+      2,
+      {
+        "default": "allow",
+        "rules": [
+          {
+            "from": ["council", "auth", "observability", "app", "components", "lib-other"],
+            "disallow": ["@supabase/*", "@supabase/ssr", "@supabase/supabase-js"],
+            "message": "Only lib/persistence/** and lib/supabase/** may import @supabase/*. Go through a repository."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[object.object.name='process'][object.property.name='env'][property.name=/^NEXT_PUBLIC_(ANTHROPIC|RESEND|SUPABASE_SERVICE|COUNCIL)/]",
+        "message": "AI-related secrets must not be exposed via NEXT_PUBLIC_*. Use a server-only env var."
+      }
+    ]
+  }
 }

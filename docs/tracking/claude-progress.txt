@@ -3,6 +3,19 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 Phase 10 plan close + execution PR open
+- PR #18 merged. Execution on feat/phase-10-v04-scaffolding.
+- npm installs done verbatim: @supabase/supabase-js, @supabase/ssr, @anthropic-ai/sdk, resend, zod (runtime) + supabase CLI + eslint-plugin-boundaries (dev). Lockfile committed.
+- lib/supabase/{browser,server,service,middleware}.ts implemented with @supabase/ssr cookie adapter. lib/persistence/** typed repos (TaskRepository requires ApprovalContext {proposalId, approvalToken} on every mutation - Write Gate enforced at the type level). lib/council/{researcher,consolidator,critic} stubs + shared/{voice,risk,token-budget}.ts with real helpers. lib/auth/beta-allowlist.ts + tests. lib/observability/{failure-class,error-email,instrumentation}.ts.
+- app routes: (auth)/sign-in, auth/callback, api/council/{proposals,proposals/[id]/approve,chat,plan,advise,greeting}, history, settings/council, admin/metrics. Root middleware.ts wired.
+- components/{council-shelf,thinking-stream,proposal-card} stubs.
+- 10 Supabase migrations with owner-only RLS. council_metrics_daily view added for F22 daily cap queries. Indexes on hot paths (session lookup, metrics range, proposals-by-status-expiry).
+- .env.example with 9 env vars. tailwind.config.ts extended with --color-*/--font-*/--space-*/--shadow-*/--motion-* namespace (values applied at F06).
+- .eslintrc.json: eslint-plugin-boundaries disallows @supabase/* from council/auth/observability/app/components/lib-other; no-restricted-syntax bans NEXT_PUBLIC_(ANTHROPIC|RESEND|SUPABASE_SERVICE|COUNCIL)* env reads. @typescript-eslint/no-unused-vars honors _ prefix.
+- Green: typecheck (0 errors), lint (clean), vitest (85 tests pass), next build (15 routes, middleware 79.5kB).
+- Zero deviations from the approved Phase 10 plan. Nothing new added. Every [impl] file listed in plan §3 is implemented; every stub file throws with its owning feature ID in the message.
+- Next: Codex blocking review on this PR (touches lib/, app/, package*.json — not docs-only). After merge, Phase 11 opens first feature PR (F02 schema apply OR F04 allowlist — F01 body already landed in this scaffolding PR).
+
 2026-04-20 Phase 09 close + Phase 10 plan open
 - Phase 09 closed GREEN. PR #17 merged on main. docs/releases/v0.4-council/progress.md is the canonical delivery tracker.
 - Phase 10 plan drafted on chore/phase-10-v04-scaffolding-plan. Single PR. Merge = explicit approval for npm installs + scaffold + migrations + CI rules.
