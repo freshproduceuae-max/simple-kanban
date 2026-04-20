@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN (scaffolding merged as PR #19 → `c3bc60c` on main). Phase 11 open: feature-by-feature PRs start with F01 on `feat/v0.4-F01-persistence-boundary`.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`). F03 magic-link auth open on `feat/v0.4-F03-magic-link-auth`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,11 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F02 close (GREEN) + F03 open (magic-link auth)
+
+- PR #21 merged (`e1ae080`). F02 `passes: true`. Codex re-review clean: apply-time test via `@electric-sql/pglite` caught the `tasks.column` reserved-keyword bug on first run; renamed to `board_column` across SQL + `TaskRow` + `TaskRepository`.
+- F03 opens on `feat/v0.4-F03-magic-link-auth` — real sign-in form + Server Actions + callback + middleware-level auth gate. 14 new auth unit tests. F04 (allowlist) layers onto the same callback next.
 
 ### 2026-04-20 — Phase 10 close (GREEN) + Phase 11 open (F01)
 

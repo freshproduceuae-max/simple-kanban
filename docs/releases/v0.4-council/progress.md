@@ -21,7 +21,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 |---|---|---|---|
 | F01 | Persistence + Supabase boundary scaffold | #19 + #20 | ☑ |
 | F02 | Supabase schema migrations (board + Council tables) | #19 + #21 | ☑ |
-| F03 | Magic-link auth via `@supabase/ssr` | — | ☐ |
+| F03 | Magic-link auth via `@supabase/ssr` | #22 | ☑ |
 | F04 | v0.4-beta invite allowlist enforcement | — | ☐ |
 | F05 | Board migration from localStorage to Supabase | — | ☐ |
 | F06 | Apply canonical v0.4 design tokens to existing UI | — | ☐ |
@@ -97,6 +97,13 @@ Newest on top. One line per working beat.
 ### 2026-04-20 — Process note: response-header convention dropped mid-session
 
 - CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
+
+### 2026-04-21 — F02 GREEN, F03 open (magic-link auth)
+
+- PR #21 merged as `e1ae080` on main. Codex re-review clean.
+- F03 opens on `feat/v0.4-F03-magic-link-auth`. Implemented: Server Action `sendMagicLink` (email normalization + Supabase OTP send with `emailRedirectTo` built from current request host), `/sign-in` server page + client `SignInForm` (loading/success/error states per global rule), `/auth/callback` GET handler (exchanges code for session, `safeNext` guards against open-redirect), `signOut` Server Action, middleware-level route gating (unauth → `/sign-in?next=<path>`; authed at `/sign-in` → `/`). F04 layers allowlist rejection onto the callback; not in scope here.
+- Extracted three pure helpers for unit coverage: `lib/auth/safe-next.ts`, `lib/auth/email.ts`, `lib/auth/public-paths.ts`. 14 new tests across safe-next (open-redirect scenarios), email (normalization + rejection shapes), public-paths (v0.4 surfaces all behind auth, no prefix-smuggling).
+- Green: typecheck 0, lint clean, vitest 130/130 (116 → 130), `next build` wires `/sign-in` + `/auth/callback`.
 
 ### 2026-04-20 — F02 apply-time test (Codex P1 fix) + real bug caught
 
