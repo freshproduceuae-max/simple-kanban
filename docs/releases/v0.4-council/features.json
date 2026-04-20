@@ -176,7 +176,7 @@
         "Schedule session-end summary write to the cold-path queue",
         "Fail-hard: retry once, then surface failure sentence"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F11",
