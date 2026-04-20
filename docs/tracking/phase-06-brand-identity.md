@@ -207,4 +207,28 @@ After Codex writes `docs/design-system/design-system.md`, close Phase 06 by appe
 
 ## 6. Outcome
 
-_(To be filled in after §3, §4, §5 complete.)_
+**Status:** Closed 2026-04-20.
+
+### 6.1 Sequence executed
+
+1. **PR #2 disposition** — deferred. Aesthetic extraction already in `docs/design-system/inspiration/editorial-planner-direction.md`; PR #2 itself stays open as a sideline item, not merged, to be closed when it next comes up. The editorial direction is now canonical via the normalized design-system doc, so PR #2 no longer gates anything.
+2. **Gemini generative pass** — ran 2026-04-20 with `docs/prd/vision.md` + the inspiration doc attached. Gemini adopted + refined the editorial-planner direction, added `--surface-card` and `--moss-light` tokens, and invented the thinking-stream motion spec from scratch. Raw output saved verbatim at [`../design-system/gemini-raw-output.md`](../design-system/gemini-raw-output.md) (commit `b27b788`).
+3. **Codex normalization pass** — ran against the Gemini raw output on branch `chore/phase-06-gemini-output`. Wrote [`../design-system/design-system.md`](../design-system/design-system.md) (commit `48bd9e8`) with 13 sections: purpose, source of truth, visual direction, color system, typography, spacing + layout, surfaces + elevation, component behavior, motion + interaction, content + UI tone, naming convention, implementation guardrails, normalization notes.
+
+### 6.2 Canonical outputs
+
+- **Design system:** `docs/design-system/design-system.md` — authoritative for Plan v0.4 product surfaces.
+- **Frozen raw input:** `docs/design-system/gemini-raw-output.md` — not edited after Codex normalization.
+- **Frozen inspiration:** `docs/design-system/inspiration/editorial-planner-direction.md` — reference material extracted from PR #2.
+
+### 6.3 Key decisions locked in
+
+- **Direction:** editorial-planner adopted, not an alternative.
+- **Light mode canonical for v0.4.** Dark mode deferred to post-v0.4.
+- **Token naming systematic:** `--color-*`, `--space-*`, `--font-family-*`, `--font-size-*`, `--font-weight-*`, `--shadow-*`, `--motion-*`. Gemini's ad-hoc names (`--paper`, `--ink`, `--terra`) are forbidden in implementation.
+- **Vision wins on conflict** — restated in the design-system doc §12.3.
+- **Thinking-stream aesthetic** is a vision-locked behavior and now has a concrete spec (duration, cursor, fade, cadence) the Phase 10/11 work can build against.
+
+### 6.4 Next phase
+
+Phase 07 — v0.4 Council PRD. Opens against the input queue already written at [`./phase-07-prd-input-queue.md`](./phase-07-prd-input-queue.md). The canonical design system is one of the three authoritative inputs the PRD references (vision + design system + input queue).
