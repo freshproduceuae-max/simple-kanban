@@ -1,5 +1,6 @@
 import { SignInForm } from './sign-in-form';
 import { safeNext } from '@/lib/auth/safe-next';
+import { signInErrorMessage } from '@/lib/auth/sign-in-error';
 
 /**
  * F03 — magic-link sign-in page.
@@ -24,7 +25,8 @@ export default function SignInPage({
   const next = safeNext(Array.isArray(rawNext) ? rawNext[0] : rawNext);
 
   const rawError = searchParams?.error;
-  const error = Array.isArray(rawError) ? rawError[0] : rawError;
+  const errorCode = Array.isArray(rawError) ? rawError[0] : rawError;
+  const errorMessage = signInErrorMessage(errorCode);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
@@ -35,12 +37,12 @@ export default function SignInPage({
         </p>
       </div>
 
-      {error && (
+      {errorMessage && (
         <p
           role="alert"
           className="mt-6 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800"
         >
-          {error}
+          {errorMessage}
         </p>
       )}
 

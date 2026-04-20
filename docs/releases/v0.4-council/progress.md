@@ -22,7 +22,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F01 | Persistence + Supabase boundary scaffold | #19 + #20 | ☑ |
 | F02 | Supabase schema migrations (board + Council tables) | #19 + #21 | ☑ |
 | F03 | Magic-link auth via `@supabase/ssr` | #22 | ☑ |
-| F04 | v0.4-beta invite allowlist enforcement | — | ☐ |
+| F04 | v0.4-beta invite allowlist enforcement | #23 | ☑ |
 | F05 | Board migration from localStorage to Supabase | — | ☐ |
 | F06 | Apply canonical v0.4 design tokens to existing UI | — | ☐ |
 | F07 | Bottom-shelf scaffold | — | ☐ |
@@ -97,6 +97,14 @@ Newest on top. One line per working beat.
 ### 2026-04-20 — Process note: response-header convention dropped mid-session
 
 - CD flagged missing 2-line header across ~6 replies post-compaction (Phase 10 close → F02 PR open). Convention restored. Root-cause + prevention rule logged in `docs/tracking/claude-progress.txt`. No prior replies edited; transcript is the record.
+
+### 2026-04-21 — F04 open (beta allowlist enforcement)
+
+- PR #22 merged as `98c0a41`. F03 GREEN.
+- F04 opens on `feat/v0.4-F04-beta-allowlist`. Implemented: post-exchange allowlist check in `app/auth/callback/route.ts` — after `exchangeCodeForSession` succeeds, read `auth.getUser()` and run `isAllowed(email)` against `COUNCIL_BETA_ALLOWLIST`; on miss, `supabase.auth.signOut()` to tear the session down (cookie must not survive the redirect) and redirect to `/sign-in?error=not_on_allowlist`. Deny-by-default when the env var is unset.
+- Added `lib/auth/sign-in-error.ts#signInErrorMessage(code)` — translates `not_on_allowlist` into a calm, first-person sentence per design-system voice ("This address isn't on the v0.4 beta list yet. If you think it should be, reply to the invite and I will add it."), and `missing_code` into a helpful request-a-new-one line. Unknown error strings pass through unchanged so we never swallow a Supabase-provider message.
+- `SignInPage` now reads `searchParams.error`, translates via `signInErrorMessage`, renders a `role="alert"` red alert block above the form.
+- Tests: 4 unit tests on `signInErrorMessage` (incl. an ASCII-only voice check that catches emoji regressions) + 8 integration tests on `/auth/callback/route.ts` covering missing_code, provider error passthrough, allowlist rejection tears session down, deny-by-default when env unset, happy-path redirect to `/`, `?next=/history` honored, open-redirect payload stripped. 147/147 pass (136 → 147, +11). typecheck 0, lint clean, build compiles.
 
 ### 2026-04-21 — F03 Codex P1 fix — `?next=` round-trip restored
 
