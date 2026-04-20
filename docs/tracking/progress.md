@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — planning. Phase 09 per-release progress tracker closed GREEN (PR #17). Phase 10 scaffolding plan drafting on `chore/phase-10-v04-scaffolding-plan`.
+- **v0.4 Council** — scaffolding. Phase 10 plan merged (PR #18). Execution PR open on `feat/phase-10-v04-scaffolding`: 5 runtime deps + 2 dev deps installed, `lib/{supabase,persistence,council,auth,observability}/**` + `app/` routes + `components/` stubs scaffolded, 10 Supabase migrations with RLS, ESLint boundary + NEXT_PUBLIC_ bans wired. typecheck/lint/test (85)/build all green.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -28,7 +28,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 | 07 | PRD (per release) | done (GREEN, v0.4) | `docs/releases/v0.4-council/prd.md`, `docs/tracking/phase-07-v04-prd-progress.md` |
 | 08 | Feature list | done (GREEN, v0.4) | `docs/releases/v0.4-council/features.json`, `docs/releases/v0.4-council/features-README.md` |
 | 09 | Progress tracking | done (GREEN, v0.4 per-release) | `docs/releases/v0.4-council/progress.md` |
-| 10 | Scaffolding | plan drafting (v0.4) | `docs/releases/v0.4-council/scaffolding-plan.md`, `docs/tracking/phase-10-v04-scaffolding-progress.md` |
+| 10 | Scaffolding | execution PR open (v0.4) | `docs/releases/v0.4-council/scaffolding-plan.md`, `lib/**`, `app/**`, `components/**`, `supabase/migrations/**` |
 | 11 | Execution | pending | — |
 | 12 | Incidents | n/a (no production incidents yet) | — |
 
@@ -42,6 +42,19 @@ Every working session appends one entry. Keep entries terse.
 - Opened Phase 06 Brand Identity prep on `chore/phase-06-brand-identity-queue`. Gemini + Codex prompts queued for Creative Director to paste. PR #2 resolution surfaced as a precondition (recommended: close unmerged, extract aesthetic direction as inspiration).
 - Queued v0.4 PRD inputs (Phase 07) at `docs/tracking/phase-07-prd-input-queue.md`.
 - Scaffolded this file and `claude-progress.txt` for Phase 09.
+
+### 2026-04-20 — Phase 10 plan close + execution PR open
+
+- Closed Phase 10 plan GREEN. PR #18 merged. Execution opened on `feat/phase-10-v04-scaffolding`.
+- Installed 5 runtime deps (@supabase/supabase-js, @supabase/ssr, @anthropic-ai/sdk, resend, zod) + 2 dev deps (supabase CLI, eslint-plugin-boundaries). No deviations from the plan.
+- Scaffolded `lib/supabase/{browser,server,service,middleware}.ts` [impl], `lib/persistence/**` typed repositories with `NotImplemented` stubs (all throw with feature-id hint), `lib/council/{researcher,consolidator,critic}` + shared voice/risk/token-budget, `lib/auth/beta-allowlist.ts` [impl + tests], `lib/observability/{failure-class,error-email,instrumentation}.ts`.
+- Scaffolded `app/(auth)/sign-in`, `app/auth/callback`, `app/api/council/{proposals,proposals/[id]/approve,chat,plan,advise,greeting}`, `app/{history,settings/council,admin/metrics}`, root `middleware.ts` wired to Supabase session refresh.
+- Scaffolded `components/{council-shelf,thinking-stream,proposal-card}` stubs.
+- Wrote 10 Supabase migrations (tasks, council_sessions, council_turns, council_memory_summaries, council_proposals, critic_diffs, memory_recalls, user_preferences, council_metrics + daily view, indexes) all with owner-only RLS.
+- Added `.env.example` (every PRD/plan env var) + extended `tailwind.config.ts` with the design-system token namespace.
+- Wired `.eslintrc.json` with `eslint-plugin-boundaries` (disallows `@supabase/*` from everything except `lib/persistence/**` + `lib/supabase/**`) + `no-restricted-syntax` ban on `NEXT_PUBLIC_(ANTHROPIC|RESEND|SUPABASE_SERVICE|COUNCIL)*` env reads.
+- Added `typecheck`, `supabase:reset`, `supabase:migrate` npm scripts.
+- Green across the board: typecheck (0 errors), lint (0 warnings/errors), vitest (85 tests pass), next build (15 routes generated, middleware bundled).
 
 ### 2026-04-20 — Phase 09 close + Phase 10 plan open
 
