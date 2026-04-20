@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — planning. Phase 08 Feature List closed GREEN (PR #16, `d1bd04a`). Phase 09 per-release progress tracking drafting on `chore/phase-09-v04-progress-tracking`.
+- **v0.4 Council** — planning. Phase 09 per-release progress tracker closed GREEN (PR #17). Phase 10 scaffolding plan drafting on `chore/phase-10-v04-scaffolding-plan`.
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -27,8 +27,8 @@ This is the cross-release view. Per-release progress lives under each release fo
 | 06 | Brand identity | done (GREEN) | `docs/tracking/phase-06-brand-identity.md`, `docs/design-system/design-system.md` |
 | 07 | PRD (per release) | done (GREEN, v0.4) | `docs/releases/v0.4-council/prd.md`, `docs/tracking/phase-07-v04-prd-progress.md` |
 | 08 | Feature list | done (GREEN, v0.4) | `docs/releases/v0.4-council/features.json`, `docs/releases/v0.4-council/features-README.md` |
-| 09 | Progress tracking | drafting (v0.4 per-release) | `docs/releases/v0.4-council/progress.md`, this file |
-| 10 | Scaffolding | pending | — |
+| 09 | Progress tracking | done (GREEN, v0.4 per-release) | `docs/releases/v0.4-council/progress.md` |
+| 10 | Scaffolding | plan drafting (v0.4) | `docs/releases/v0.4-council/scaffolding-plan.md`, `docs/tracking/phase-10-v04-scaffolding-progress.md` |
 | 11 | Execution | pending | — |
 | 12 | Incidents | n/a (no production incidents yet) | — |
 
@@ -42,6 +42,12 @@ Every working session appends one entry. Keep entries terse.
 - Opened Phase 06 Brand Identity prep on `chore/phase-06-brand-identity-queue`. Gemini + Codex prompts queued for Creative Director to paste. PR #2 resolution surfaced as a precondition (recommended: close unmerged, extract aesthetic direction as inspiration).
 - Queued v0.4 PRD inputs (Phase 07) at `docs/tracking/phase-07-prd-input-queue.md`.
 - Scaffolded this file and `claude-progress.txt` for Phase 09.
+
+### 2026-04-20 — Phase 09 close + Phase 10 plan open
+
+- Closed Phase 09 GREEN. PR #17 merged on main. `docs/releases/v0.4-council/progress.md` is the canonical delivery tracker for v0.4.
+- Opened Phase 10 scaffolding plan on `chore/phase-10-v04-scaffolding-plan`. Single consolidated plan PR. Per CD standing instruction, merge of the plan PR = explicit approval for every npm install + scaffold + migration + CI rule. One execution PR follows.
+- Plan lists: 5 runtime deps (@supabase/supabase-js, @supabase/ssr, @anthropic-ai/sdk, resend, zod), 2 dev deps (supabase CLI, eslint-plugin-boundaries), full directory scaffold under lib/supabase, lib/persistence, lib/council, lib/auth, lib/observability, app routes for auth + council API + history + settings + admin, 10 Supabase migrations, 6 CI rules including the @supabase/* boundary enforcement.
 
 ### 2026-04-20 — Phase 08 close + Phase 09 open
 

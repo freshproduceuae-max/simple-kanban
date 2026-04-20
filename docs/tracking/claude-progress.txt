@@ -3,6 +3,13 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-20 Phase 09 close + Phase 10 plan open
+- Phase 09 closed GREEN. PR #17 merged on main. docs/releases/v0.4-council/progress.md is the canonical delivery tracker.
+- Phase 10 plan drafted on chore/phase-10-v04-scaffolding-plan. Single PR. Merge = explicit approval for npm installs + scaffold + migrations + CI rules.
+- New CD standing rule: "If Phase 10 plan clearly lists packages + reasons + dirs + migrations + CI rules, approval on that plan PR counts as explicit approval for the listed npm installs and scaffolding execution." One decision point only.
+- Runtime deps: @supabase/supabase-js ^2.46.1, @supabase/ssr ^0.5.2, @anthropic-ai/sdk ^0.39.0, resend ^4.0.1, zod ^3.23.8. Dev deps: supabase CLI ^1.219.2, eslint-plugin-boundaries ^4.2.2. 10 Supabase migrations. 6 CI rules incl. @supabase/* import-boundary enforcement + NEXT_PUBLIC_ AI-env ban.
+- Execution PR follows plan-PR merge. Phase 11 (feature PRs) starts after scaffolding merges.
+
 2026-04-20 Phase 08 close + Phase 09 open
 - Phase 08 closed GREEN. PR #16 merged as d1bd04a on main. features.json (32 features: 22 alpha / 4 beta / 6 final) + features-README.md + phase-08 tracking doc on main.
 - Pre-merge scope-fidelity audit confirmed: PRD §§3-16 all covered, zero v0.5/v0.6/v1.0 creep, all 5 [CD PICK] defaults preserved (F03 magic link, F04 allowlist, F21/F26 Vercel Analytics + /admin/metrics, F22 500k cap, F29 forever+purge).
