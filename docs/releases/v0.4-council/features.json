@@ -209,7 +209,7 @@
         "Unit test: direct task-mutation without proposalId is rejected",
         "Unit test: expired proposal returns 410"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F13",

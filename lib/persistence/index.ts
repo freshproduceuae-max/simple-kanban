@@ -23,6 +23,11 @@ export type { SessionRepository } from './session-repository';
 
 export { ProposalRepositoryNotImplemented } from './proposal-repository';
 export type { ProposalRepository } from './proposal-repository';
+export {
+  SupabaseProposalRepository,
+  PROPOSAL_TTL_MS,
+  PENDING_CAP_PER_USER,
+} from './supabase-proposal-repository';
 
 export { UserPreferencesRepositoryNotImplemented } from './user-preferences-repository';
 export type { UserPreferencesRepository } from './user-preferences-repository';
