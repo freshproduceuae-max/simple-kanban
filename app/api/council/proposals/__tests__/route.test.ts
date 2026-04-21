@@ -195,23 +195,31 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     expect(res.status).toBe(200);
   });
 
+  // Shared helpers for the past-TTL branch. The route now calls findById
+  // TWICE on that branch — once to discover the stale row, once to
+  // confirm it transitioned off pending after markExpired.
+  const stalePendingRow = () => ({
+    id: 'p1',
+    user_id: 'u1',
+    session_id: null,
+    kind: 'task' as const,
+    payload: { title: 't' },
+    status: 'pending' as const,
+    created_at: '2026-04-20T00:00:00Z',
+    expires_at: stale,
+    approved_at: null,
+    approval_token_hash: null,
+  });
+  const archivedRow = () => ({ ...stalePendingRow(), status: 'expired' as const });
+
   it('returns 410 ONLY after markExpired confirms the specific row was archived', async () => {
     // Sweep missed the row (could be a sweep error above, or a TTL-
     // at-the-boundary race). findById still sees it pending with a
     // past expires_at. The route must confirm the archive on this
     // specific row before answering 410.
-    proposalFindById.mockResolvedValue({
-      id: 'p1',
-      user_id: 'u1',
-      session_id: null,
-      kind: 'task',
-      payload: { title: 't' },
-      status: 'pending',
-      created_at: '2026-04-20T00:00:00Z',
-      expires_at: stale,
-      approved_at: null,
-      approval_token_hash: null,
-    });
+    proposalFindById
+      .mockResolvedValueOnce(stalePendingRow())
+      .mockResolvedValueOnce(archivedRow());
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(410);
     expect(proposalMarkExpired).toHaveBeenCalledWith({
@@ -220,22 +228,13 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     });
   });
 
-  it('treats a null markExpired result as an already-archived row (still 410)', async () => {
+  it('treats a null markExpired result as an already-archived row when re-read confirms non-pending', async () => {
     // Concurrent archive (another sweep, admin tool) flipped the row
     // between findById and markExpired. markExpired returns null. The
-    // archive contract is satisfied — row is no longer pending in DB.
-    proposalFindById.mockResolvedValue({
-      id: 'p1',
-      user_id: 'u1',
-      session_id: null,
-      kind: 'task',
-      payload: { title: 't' },
-      status: 'pending',
-      created_at: '2026-04-20T00:00:00Z',
-      expires_at: stale,
-      approved_at: null,
-      approval_token_hash: null,
-    });
+    // belt-and-braces re-read confirms non-pending status, so 410.
+    proposalFindById
+      .mockResolvedValueOnce(stalePendingRow())
+      .mockResolvedValueOnce(archivedRow());
     proposalMarkExpired.mockResolvedValueOnce(null);
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(410);
@@ -245,18 +244,7 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     // If we cannot confirm the row was transitioned off pending, we
     // MUST NOT answer 410. A 500 tells the client to retry; the next
     // call's top-of-route sweep almost certainly succeeds.
-    proposalFindById.mockResolvedValue({
-      id: 'p1',
-      user_id: 'u1',
-      session_id: null,
-      kind: 'task',
-      payload: { title: 't' },
-      status: 'pending',
-      created_at: '2026-04-20T00:00:00Z',
-      expires_at: stale,
-      approved_at: null,
-      approval_token_hash: null,
-    });
+    proposalFindById.mockResolvedValueOnce(stalePendingRow());
     proposalMarkExpired.mockRejectedValueOnce(new Error('db down'));
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(500);
@@ -264,19 +252,34 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     expect(body.error).toMatch(/archive-failed/);
   });
 
+  it('fails loud with 500 when the post-markExpired re-read still shows the row pending', async () => {
+    // markExpired reported success (or null), but a fresh findById
+    // STILL sees the row as pending. We did not actually archive; we
+    // must not claim 410. Codex P1 round 4: archive-confirmation must
+    // be belt-and-braces, not single-UPDATE trust.
+    proposalFindById
+      .mockResolvedValueOnce(stalePendingRow())
+      .mockResolvedValueOnce(stalePendingRow());
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/archive-failed/);
+  });
+
+  it('fails loud with 500 when the re-read findById itself throws', async () => {
+    proposalFindById
+      .mockResolvedValueOnce(stalePendingRow())
+      .mockRejectedValueOnce(new Error('read-blip'));
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/archive-verify-failed/);
+  });
+
   it('returns 410 when proposal is past its TTL (expired)', async () => {
-    proposalFindById.mockResolvedValue({
-      id: 'p1',
-      user_id: 'u1',
-      session_id: null,
-      kind: 'task',
-      payload: { title: 't' },
-      status: 'pending',
-      created_at: '2026-04-20T00:00:00Z',
-      expires_at: stale,
-      approved_at: null,
-      approval_token_hash: null,
-    });
+    proposalFindById
+      .mockResolvedValueOnce(stalePendingRow())
+      .mockResolvedValueOnce(archivedRow());
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(410);
     const body = await res.json();

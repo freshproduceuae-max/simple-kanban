@@ -97,18 +97,25 @@ export async function POST(_request: Request, { params }: Ctx) {
     row.status === 'pending' &&
     new Date(row.expires_at).getTime() < Date.now()
   ) {
+    // Archive-confirmation contract: we only return 410 after we have
+    // *proof* the row is no longer `pending` in storage. The proof is
+    // two-layered:
+    //
+    //   (1) markExpired's UPDATE is guarded by `.eq('status','pending')`
+    //       and RETURNING *. A non-null result is a row whose status
+    //       is now 'expired'. A null result means the predicate no
+    //       longer matched — i.e., someone else already moved the row
+    //       off pending between findById and markExpired.
+    //
+    //   (2) Belt-and-braces re-read: findById again. If the DB still
+    //       reports `pending` after markExpired, we did NOT archive
+    //       and must NOT answer 410. Fail loud with 500 instead.
+    //
+    // Any throw on either leg → 500 with `archive-failed: <reason>`.
+    let archived;
     try {
-      // markExpired returns either the newly-expired row, OR null if
-      // the row was concurrently moved off `pending` by someone else
-      // (approve race, admin tool, repeated sweep). Either outcome
-      // satisfies the archive contract: the row is no longer pending
-      // in storage. Only a THROW means we cannot confirm archive.
-      await proposalRepo.markExpired({ id: proposalId, userId });
-      return NextResponse.json({ error: 'expired' }, { status: 410 });
+      archived = await proposalRepo.markExpired({ id: proposalId, userId });
     } catch (err) {
-      // Could not confirm the archive. Fail loud rather than lie —
-      // the client will retry, and the next call's top-of-route sweep
-      // will almost certainly succeed.
       return NextResponse.json(
         {
           error:
@@ -119,6 +126,35 @@ export async function POST(_request: Request, { params }: Ctx) {
         { status: 500 },
       );
     }
+
+    let confirmed;
+    try {
+      confirmed = await proposalRepo.findById({ id: proposalId, userId });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? `archive-verify-failed: ${err.message}`
+              : 'archive-verify-failed',
+        },
+        { status: 500 },
+      );
+    }
+    if (confirmed && confirmed.status === 'pending') {
+      // markExpired claimed success (or returned null) but a fresh
+      // read still shows the row pending. We have NOT archived, so
+      // we must not pretend we did.
+      return NextResponse.json(
+        { error: 'archive-failed: row still pending after markExpired' },
+        { status: 500 },
+      );
+    }
+    // At this point: either markExpired returned an expired row, or
+    // the re-read confirms the row is no longer pending (either
+    // missing, expired, approved, or rejected — all non-pending).
+    void archived;
+    return NextResponse.json({ error: 'expired' }, { status: 410 });
   }
 
   if (row.status !== 'pending') {
