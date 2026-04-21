@@ -137,7 +137,14 @@ export class SupabaseSessionRepository implements SessionRepository {
     const lastActivityIso =
       (turns?.[0] as { created_at?: string } | undefined)?.created_at ??
       row.started_at;
-    if (lastActivityIso < input.idleCutoffIso) return null;
+    // Compare as instants, not strings. `timestamptz` from Postgres
+    // and `Date.toISOString()` from JS aren't guaranteed to share the
+    // same textual format (timezone offset, sub-ms precision), so a
+    // lexical compare can mis-order at the idle boundary on cold start.
+    const lastActivityMs = Date.parse(lastActivityIso);
+    const cutoffMs = Date.parse(input.idleCutoffIso);
+    if (Number.isNaN(lastActivityMs) || Number.isNaN(cutoffMs)) return null;
+    if (lastActivityMs < cutoffMs) return null;
     return row;
   }
 

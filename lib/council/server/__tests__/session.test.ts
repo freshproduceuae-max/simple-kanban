@@ -90,6 +90,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     const t0 = 1_000_000;
     const id = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0,
       sessionRepo: repo,
@@ -103,6 +104,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     // DB insert.
     const id2 = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0 + SESSION_IDLE_WINDOW_MS - 1,
       sessionRepo: repo,
@@ -127,6 +129,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     const t0 = 1_000_000;
     const first = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0,
       sessionRepo: repo,
@@ -146,6 +149,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     const second = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0 + SESSION_IDLE_WINDOW_MS + 1,
       sessionRepo: repo,
@@ -191,6 +195,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     const t0 = 1_000_000;
     const a = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0,
       sessionRepo: repo,
@@ -198,6 +203,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     const b = await resolveSessionId({
       userId: 'u2',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0,
       sessionRepo: repo,
@@ -214,6 +220,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     // First turn — no clientProvided, populates the cache via startSession.
     await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0,
       sessionRepo: repo,
@@ -225,6 +232,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     // we trust the cache, no DB lookup, no new startSession.
     const got = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       clientProvided: REAL_UUID_A,
       now: t0 + 5_000,
@@ -251,6 +259,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     const got = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       clientProvided: REAL_UUID_A,
       sessionRepo: repo,
@@ -282,6 +291,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     const got = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       clientProvided: REAL_UUID_A,
       sessionRepo: repo,
@@ -298,6 +308,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     findResumableSession.mockRejectedValueOnce(new Error('db blip'));
     const got = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       clientProvided: REAL_UUID_A,
       sessionRepo: repo,
@@ -313,6 +324,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     const { repo: memoryRepo } = makeMemoryRepo();
     const got = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       clientProvided: 'not-a-uuid',
       sessionRepo: repo,
@@ -320,6 +332,53 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     expect(got).toBe(REAL_UUID_A);
     expect(startSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts a fresh session after sign-out/re-sign-in even within the idle window', async () => {
+    // PRD §10.2 — sign-out ends a session. The cache is keyed by
+    // (userId, authSessionId), so the same user arriving with a new
+    // auth fingerprint lands in a fresh cache slot and starts a new
+    // `council_sessions` row, even though the prior entry is still
+    // within the 30-min idle window.
+    const { repo, startSession } = makeSessionRepo();
+    const { repo: memoryRepo } = makeMemoryRepo();
+    startSession
+      .mockResolvedValueOnce({
+        id: REAL_UUID_A,
+        user_id: 'u1',
+        mode: 'chat',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      })
+      .mockResolvedValueOnce({
+        id: REAL_UUID_B,
+        user_id: 'u1',
+        mode: 'chat',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      });
+    const t0 = 1_000_000;
+    const first = await resolveSessionId({
+      userId: 'u1',
+      authSessionId: 'auth-A',
+      mode: 'chat',
+      now: t0,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    const second = await resolveSessionId({
+      userId: 'u1',
+      authSessionId: 'auth-B', // new login, still inside 30-min idle
+      mode: 'chat',
+      now: t0 + 60_000,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    expect(first).toBe(REAL_UUID_A);
+    expect(second).toBe(REAL_UUID_B);
+    expect(startSession).toHaveBeenCalledTimes(2);
   });
 
   it('swallows finalize errors so an idle-rollover never fails the new turn', async () => {
@@ -347,6 +406,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     const t0 = 1_000_000;
     await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0,
       sessionRepo: repo,
@@ -355,6 +415,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     const second = await resolveSessionId({
       userId: 'u1',
+      authSessionId: 'auth-1',
       mode: 'chat',
       now: t0 + SESSION_IDLE_WINDOW_MS + 1,
       sessionRepo: repo,

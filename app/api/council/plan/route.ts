@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAuthedUserId } from '@/lib/auth/current-user';
+import { getAuthedIdentity } from '@/lib/auth/current-user';
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
@@ -47,8 +47,9 @@ type PlanRequest = {
 
 export async function POST(request: Request) {
   let userId: string;
+  let authSessionId: string;
   try {
-    userId = await getAuthedUserId();
+    ({ userId, authSessionId } = await getAuthedIdentity());
   } catch {
     return NextResponse.json({ error: 'not-authenticated' }, { status: 401 });
   }
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
   const memoryRepo = getCouncilMemoryRepository();
   const sessionId = await resolveSessionId({
     userId,
+    authSessionId,
     mode: 'plan',
     clientProvided:
       typeof body.sessionId === 'string' ? body.sessionId : undefined,

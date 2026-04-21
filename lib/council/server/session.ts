@@ -10,7 +10,13 @@ import type { CouncilMode } from '@/lib/persistence/types';
  * satisfy the FK on `council_turns.session_id`. This module owns the
  * find-or-create policy:
  *
- *   - Same user, same idle window (30 min) → reuse the cached id.
+ *   - Same user, same auth session, same idle window (30 min) →
+ *     reuse the cached id.
+ *   - Same user, different auth session (sign-out then re-sign-in) →
+ *     start a fresh `council_sessions` row, finalize the prior
+ *     entry for this user. The cache is keyed on
+ *     `(userId, authSessionId)` so a fresh login naturally gets a
+ *     fresh session per PRD §10.2.
  *   - New user, OR same user past the idle window → start a fresh
  *     `council_sessions` row and cache the new id.
  *   - Client-provided id (UUID) → validated before trust. If it
@@ -45,12 +51,22 @@ type SessionEntry = {
   sessionId: string;
   lastTouchedAt: number;
   mode: CouncilMode;
+  userId: string;
 };
 
-const sessionByUser = new Map<string, SessionEntry>();
+/**
+ * Cache is keyed by `${userId}:${authSessionId}` so a sign-out +
+ * re-sign-in (which bumps the auth session fingerprint) lands in a
+ * fresh slot and starts a new Council session.
+ */
+const sessionByIdentity = new Map<string, SessionEntry>();
+
+function cacheKey(userId: string, authSessionId: string): string {
+  return `${userId}:${authSessionId}`;
+}
 
 export function __resetSessionCacheForTests(): void {
-  sessionByUser.clear();
+  sessionByIdentity.clear();
 }
 
 /**
@@ -68,6 +84,12 @@ function isUuid(maybe: string): boolean {
 
 export type ResolveSessionInput = {
   userId: string;
+  /**
+   * Fingerprint of the current Supabase auth session — see
+   * `getAuthedIdentity`. Combined with `userId` to key the cache so
+   * sign-out + re-sign-in naturally starts a new Council session.
+   */
+  authSessionId: string;
   mode: CouncilMode;
   clientProvided?: string;
   now?: number;
@@ -86,6 +108,7 @@ export async function resolveSessionId(
 ): Promise<string> {
   const now = input.now ?? Date.now();
   const log = input.log ?? ((msg, err) => console.error(msg, err));
+  const key = cacheKey(input.userId, input.authSessionId);
 
   // Client echoed an id back. A well-formed UUID is necessary but not
   // sufficient — we must prove it's still a live session this user
@@ -94,7 +117,7 @@ export async function resolveSessionId(
   // next appendTurn / proposal insert).
   const trimmed = input.clientProvided?.trim();
   if (trimmed && isUuid(trimmed)) {
-    const cached = sessionByUser.get(input.userId);
+    const cached = sessionByIdentity.get(key);
     if (
       cached &&
       cached.sessionId === trimmed &&
@@ -112,10 +135,11 @@ export async function resolveSessionId(
         idleCutoffIso,
       });
       if (row) {
-        sessionByUser.set(input.userId, {
+        sessionByIdentity.set(key, {
           sessionId: row.id,
           lastTouchedAt: now,
           mode: row.mode,
+          userId: input.userId,
         });
         return row.id;
       }
@@ -126,14 +150,15 @@ export async function resolveSessionId(
     }
   }
 
-  const existing = sessionByUser.get(input.userId);
+  const existing = sessionByIdentity.get(key);
   if (existing && now - existing.lastTouchedAt <= SESSION_IDLE_WINDOW_MS) {
     existing.lastTouchedAt = now;
     return existing.sessionId;
   }
 
-  // Idle window closed (or first-ever turn) — finalize the prior
-  // session as a cold-path pass, then start a fresh one.
+  // Idle window closed (or first-ever turn on this identity) —
+  // finalize the prior session as a cold-path pass, then start a
+  // fresh one.
   if (existing) {
     const toFinalize = existing;
     void finalizeSession(
@@ -154,10 +179,11 @@ export async function resolveSessionId(
     userId: input.userId,
     mode: input.mode,
   });
-  sessionByUser.set(input.userId, {
+  sessionByIdentity.set(key, {
     sessionId: row.id,
     lastTouchedAt: now,
     mode: input.mode,
+    userId: input.userId,
   });
   return row.id;
 }

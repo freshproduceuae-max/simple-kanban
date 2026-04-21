@@ -224,6 +224,30 @@ describe('SupabaseSessionRepository (F18)', () => {
       expect(got?.id).toBe('session-1');
     });
 
+    it('compares timestamps as instants, not lexical strings (tz offset)', async () => {
+      // Postgres `timestamptz` can surface as "+00:00" suffix while
+      // `Date.toISOString()` uses "Z" — string ordering would reject
+      // this live session at the boundary.
+      const sessionBuilder = chain<CouncilSessionRow>({
+        data: sessionRow,
+        error: null,
+      });
+      const turnBuilder = chain<{ created_at: string }[]>({
+        data: [{ created_at: '2026-04-21T00:00:00.500+00:00' }],
+        error: null,
+      });
+      fromSpy
+        .mockReturnValueOnce(sessionBuilder)
+        .mockReturnValueOnce(turnBuilder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const got = await repo.findResumableSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+        idleCutoffIso: '2026-04-21T00:00:00.100Z',
+      });
+      expect(got?.id).toBe('session-1');
+    });
+
     it('falls back to started_at when there are no turns yet', async () => {
       const sessionBuilder = chain<CouncilSessionRow>({
         data: sessionRow, // started_at: '2026-04-21T00:00:00Z'

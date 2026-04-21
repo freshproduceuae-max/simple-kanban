@@ -10,6 +10,10 @@ const REAL_UUID = 'aaaaaaaa-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
   getAuthedUserId: () => getAuthedUserId(),
+  getAuthedIdentity: async () => ({
+    userId: await getAuthedUserId(),
+    authSessionId: 'auth-1',
+  }),
 }));
 vi.mock('@/lib/council/server/dispatch', () => ({
   runCouncilTurn: (...a: unknown[]) => runCouncilTurnMock(...a),
