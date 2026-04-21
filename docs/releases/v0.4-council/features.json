@@ -258,7 +258,7 @@
         "Respect token budget 10k per turn (enforced in F29)",
         "Write turn logs synchronously"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F16",
@@ -275,7 +275,7 @@
         "Always run Critic on the draft",
         "Surface proposal cards for each draft task in the shelf"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F17",
@@ -291,7 +291,7 @@
         "Disable Researcher web path unless user explicitly asks; require confirmation before firing web",
         "On user 'draft this': hand off to Plan mode's proposal-card path"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F18",

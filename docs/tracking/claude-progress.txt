@@ -3,6 +3,32 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F15+F16+F17 open — three Council modes batched (PR #30, Batch A of remaining 8 alpha)
+- Branch: feat/v0.4-F15-F16-F17-council-modes (3 sequential commits). F12+F13+F14 template.
+- CD picks locked upstream of the branch: (1) three distinct routes, (2) JSON trailer frame for structured data, (3) Advise→Plan handoff via client re-POST, (4) Consolidator-requested chips (not always rendered). 8 remaining alpha features split 2-batch: A=F15/F16/F17, B=F18-F22.
+- Commit 1 — F15 Chat mode + shared seams (2f6edf9):
+  * NEW lib/council/server/dispatch.ts — runCouncilTurn() orchestrator. Researcher BEFORE consolidator (not parallel, per PRD §9). Critic chained on consolidator.done.then(...). Researcher throw → fail-visible. Consolidator throw → fail-hard rethrow. Critic throw → fail-quiet. forceCritic flag maps to critic.force.
+  * NEW lib/council/server/stream-response.ts — streamCouncilReply({chunks, done, mode, trailer?, log?}). text/plain stream. Optional JSON trailer on fresh LF after chunks drain. Header x-council-has-proposals only set when trailer prop present. Trailer throw swallowed (user reply never truncated).
+  * NEW lib/council/server/session.ts — in-memory Map<userId, {id, lastTouch}>. SESSION_IDLE_WINDOW_MS = 30min. findOrCreateSessionId + resolveSessionId. Explicit `F18 replaces this` comment at top. __resetSessionCacheForTests export.
+  * NEW lib/council/shared/web-request.ts — userRequestedWeb(input). Default phrase list + COUNCIL_WEB_REQUEST_PHRASES env override.
+  * lib/council/researcher/index.ts — WEB_CALLS_PER_SESSION_MAX_BY_MODE {plan:10, advise:5, chat:5, greeting:0}. Rate-limit key reshape: Map<"${mode}:${sessionId}", count> so Plan/Chat don't cross-subsidize in same session.
+  * lib/council/critic/index.ts — added force?:boolean to CriticInput. Skip guard: `if (!input.force && !shouldDispatchCritic(risk, threshold))`.
+  * app/api/council/chat/route.ts — rewritten from 501 stub. mode:'chat', forceCritic:false, webEnabled from userRequestedWeb. NotImplemented stubs for session/memory repos (turn-write already swallows).
+  * NEW components/council-shelf/ShelfInput.tsx + TurnList.tsx — scoped F07 retrofit (editorial-flow, no bubble chrome per §8.3). ShelfTurn union {user|council}; council has text/stream/extras slots. Stream precedence over text.
+  * +21 tests (5 web-request, 8 session, 9 dispatch, 5 stream-response, 7 chat route) + 12 component tests. Lint/type/build clean.
+- Commit 2 — F16 Plan mode (7680e80):
+  * lib/council/consolidator/index.ts — plan-mode hint extended to require trailing ```json-plan fenced JSON with {tasks:[...], chips:[...]} (chips optional — Consolidator-requested only).
+  * NEW lib/council/server/plan-extract.ts — regex /```json-plan\s*\n([\s\S]*?)\n```/g; takes LAST fence; lenient (no throw on malformed JSON, non-object, non-array tasks → empty result).
+  * app/api/council/plan/route.ts — replaces 501 stub. mode:'plan', webEnabled:true, forceCritic:true. trailer() awaits done, extracts frame, loops frame.tasks → getProposalRepository().create({user_id, session_id, kind:'task', payload:{title}}). Per-row create throw logged + skipped (surviving siblings still emit). Trailer payload {proposals, chips} — omitted entirely when both empty.
+  * NEW components/council-shelf/ChipInput.tsx — compact button → expand to input → submit/Escape/empty-blur collapses back. §8.5. focus-visible:shadow-ring-focus.
+  * +24 tests (8 plan-extract, 10 route, 6 ChipInput).
+- Commit 3 — F17 Advise mode (dd9da86):
+  * NEW lib/council/shared/handoff-request.ts — userRequestedPlanHandoff(). Default phrases ['draft this','plan this','turn this into tasks',…] + COUNCIL_PLAN_HANDOFF_PHRASES env override. Phrase-match only; handoff is routing cue, not judgement.
+  * app/api/council/advise/route.ts — replaces 501 stub. mode:'advise', forceCritic:false. webEnabled = body.confirmWebFetch === true (two-step confirm per PRD §7). boardSnapshot via getTaskRepository().listForUser(userId) projected to {id,title,board_column,overdue_at} only. Snapshot fetch throw is fail-visible (boardSnapshot=undefined, user still gets reply). When userRequestedPlanHandoff → trailer emits {handoff:'plan'} instead of proposals; never creates rows (Write Gate sacred).
+  * +15 tests (5 handoff-request, 10 route).
+- Gates: 359/359 suite GREEN (excluding pre-existing pglite hook-timeout flake). tsc --noEmit clean. eslint clean. next build clean (all three routes show up as ƒ).
+- Next: PR #30 body cites CD picks + F07-retrofit scoping note + F18 session bridge marker. Return when up.
+
 2026-04-21 F12+F13+F14 open — Write Gate + proposal card + greeting batched (PR #29)
 - PR #28 (F09/F10/F11) merged 878e276. CD instruction post-F11: "not only 12 — do 3 features together or more and prepare for an approval after few hours." Same batch template as #28.
 - Branch: feat/v0.4-F12-F13-F14-write-gate-and-greeting.
