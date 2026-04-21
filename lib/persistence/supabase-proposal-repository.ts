@@ -43,6 +43,10 @@ export class SupabaseProposalRepository implements ProposalRepository {
       'id' | 'created_at' | 'status' | 'approved_at' | 'approval_token_hash'
     > & { status?: ProposalStatus },
   ): Promise<CouncilProposalRow> {
+    // Archive stale rows FIRST so the pending cap is computed against
+    // only live proposals. Without this, expired rows still sit at
+    // `pending` in storage and burn slots against the cap.
+    await this.expireStaleForUser({ userId: input.user_id, now: new Date() });
     // FIFO-evict oldest pending rows if user is already at cap.
     await this.enforcePendingCap(input.user_id);
 
@@ -139,6 +143,19 @@ export class SupabaseProposalRepository implements ProposalRepository {
       .lt('expires_at', now.toISOString())
       .select('id');
     if (error) throw new Error(`ProposalRepository.expireStale: ${error.message}`);
+    return (data ?? []).length;
+  }
+
+  async expireStaleForUser(input: { userId: string; now: Date }): Promise<number> {
+    const { data, error } = await this.client
+      .from('council_proposals')
+      .update({ status: 'expired' })
+      .eq('user_id', input.userId)
+      .eq('status', 'pending')
+      .lt('expires_at', input.now.toISOString())
+      .select('id');
+    if (error)
+      throw new Error(`ProposalRepository.expireStaleForUser: ${error.message}`);
     return (data ?? []).length;
   }
 

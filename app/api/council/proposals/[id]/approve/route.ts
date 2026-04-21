@@ -56,6 +56,21 @@ export async function POST(_request: Request, { params }: Ctx) {
 
   const proposalRepo = getProposalRepository();
 
+  // Hot-path archive sweep. PRD §8.3 requires expired proposals to
+  // archive automatically; without this, dead rows would stay at
+  // `pending` in storage and burn slots against the 10-pending cap.
+  // Cheap to run on the approve tap — user-scoped, one UPDATE.
+  try {
+    await proposalRepo.expireStaleForUser({ userId, now: new Date() });
+  } catch (err) {
+    // Log but don't fail the approve — a missed sweep is recoverable
+    // on the next tap / next `create` call.
+    console.warn(
+      `approve-route: expireStaleForUser failed for user ${userId}`,
+      err,
+    );
+  }
+
   let row;
   try {
     row = await proposalRepo.findById({ id: proposalId, userId });
@@ -70,8 +85,22 @@ export async function POST(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: 'not-found' }, { status: 404 });
   }
 
-  if (new Date(row.expires_at).getTime() < Date.now()) {
-    // PRD §8.3: expired proposals archive automatically, not auto-applied.
+  // If the sweep above caught this row, its status is now 'expired'
+  // and the `row.status !== 'pending'` branch below returns 410.
+  // If a sweep failure or TTL-at-the-boundary race left it still
+  // pending despite a past expires_at, retry the archive once so the
+  // row is actually flipped before we respond 410 — the PRD's
+  // "automatic archive" rule has to hold even on the unlucky path.
+  if (
+    row.status === 'pending' &&
+    new Date(row.expires_at).getTime() < Date.now()
+  ) {
+    try {
+      await proposalRepo.expireStaleForUser({ userId, now: new Date() });
+    } catch {
+      // First-attempt failure already logged; a second miss is
+      // recoverable on any subsequent request.
+    }
     return NextResponse.json({ error: 'expired' }, { status: 410 });
   }
 

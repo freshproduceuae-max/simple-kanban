@@ -11,6 +11,7 @@ const proposalCreate = vi.fn();
 const proposalFindById = vi.fn();
 const proposalMarkApproved = vi.fn();
 const proposalRevertToPending = vi.fn();
+const proposalExpireStaleForUser = vi.fn();
 const taskCreate = vi.fn();
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -24,6 +25,7 @@ vi.mock('@/lib/persistence/server', () => ({
     markApproved: (...a: unknown[]) => proposalMarkApproved(...a),
     revertToPending: (...a: unknown[]) => proposalRevertToPending(...a),
     expireStale: vi.fn(),
+    expireStaleForUser: (...a: unknown[]) => proposalExpireStaleForUser(...a),
   }),
   getTaskRepository: () => ({
     create: (...a: unknown[]) => taskCreate(...a),
@@ -108,6 +110,8 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     proposalFindById.mockReset();
     proposalMarkApproved.mockReset();
     proposalRevertToPending.mockReset();
+    proposalExpireStaleForUser.mockReset();
+    proposalExpireStaleForUser.mockResolvedValue(0);
     taskCreate.mockReset();
     getAuthedUserId.mockResolvedValue('u1');
     proposalMarkApproved.mockResolvedValue({ id: 'p1' });
@@ -143,6 +147,71 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     proposalFindById.mockResolvedValue(null);
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(404);
+  });
+
+  it('archives stale proposals on every approve tap (automatic-archive rule)', async () => {
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 'Write plan' },
+      status: 'pending',
+      created_at: '2026-04-21T00:00:00Z',
+      expires_at: fresh,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    proposalExpireStaleForUser.mockResolvedValueOnce(3);
+    await approveProposal(req(), { params: { id: 'p1' } });
+    expect(proposalExpireStaleForUser).toHaveBeenCalled();
+    const arg = proposalExpireStaleForUser.mock.calls[0][0] as {
+      userId: string;
+      now: Date;
+    };
+    expect(arg.userId).toBe('u1');
+    expect(arg.now).toBeInstanceOf(Date);
+  });
+
+  it('tolerates a failed sweep (logs + continues to approve path)', async () => {
+    proposalExpireStaleForUser.mockRejectedValueOnce(new Error('sweep-fail'));
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 'Write plan' },
+      status: 'pending',
+      created_at: '2026-04-21T00:00:00Z',
+      expires_at: fresh,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 410 AND re-archives when a pending row is somehow still pending past TTL', async () => {
+    // Simulate sweep failure: row comes back still pending despite
+    // past expires_at. Route must retry the sweep so the row is
+    // actually flipped.
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 't' },
+      status: 'pending',
+      created_at: '2026-04-20T00:00:00Z',
+      expires_at: stale,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(410);
+    // Called at least twice: the up-front sweep + the retry after the
+    // findById read confirmed the row is still pending.
+    expect(proposalExpireStaleForUser).toHaveBeenCalledTimes(2);
   });
 
   it('returns 410 when proposal is past its TTL (expired)', async () => {

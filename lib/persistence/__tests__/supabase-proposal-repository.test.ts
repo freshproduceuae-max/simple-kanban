@@ -61,15 +61,17 @@ describe('SupabaseProposalRepository (F12)', () => {
   });
 
   it('create computes a 24h expires_at and scopes insert by user_id', async () => {
-    // First call (enforcePendingCap): return [] pending.
-    // Second call (insert): return the new row.
+    // create now performs three writes in order: sweep stale →
+    // enforcePendingCap list → insert.
+    const sweepBuilder = chain<Array<{ id: string }>>({ data: [], error: null });
     const listBuilder = chain<Array<{ id: string; created_at: string }>>({ data: [], error: null });
     const insertBuilder = chain<CouncilProposalRow>({ data: baseRow, error: null });
-    const calls: Array<'list' | 'insert'> = [];
+    const calls: Array<'sweep' | 'list' | 'insert'> = [];
     fromSpy = vi.fn(() => {
-      const kind = calls.length === 0 ? 'list' : 'insert';
+      const n = calls.length;
+      const kind = n === 0 ? 'sweep' : n === 1 ? 'list' : 'insert';
       calls.push(kind);
-      return kind === 'list' ? listBuilder : insertBuilder;
+      return kind === 'sweep' ? sweepBuilder : kind === 'list' ? listBuilder : insertBuilder;
     });
     const repo = new SupabaseProposalRepository({ from: fromSpy } as never);
 
@@ -138,20 +140,23 @@ describe('SupabaseProposalRepository (F12)', () => {
       id: `old-${i}`,
       created_at: `2026-04-2${i}T00:00:00Z`,
     }));
+    const sweepBuilder = chain<Array<{ id: string }>>({ data: [], error: null });
     const listBuilder = chain<Array<{ id: string; created_at: string }>>({ data: existing, error: null });
     const evictBuilder = chain<Array<{ id: string }>>({ data: [{ id: 'old-0' }], error: null });
     const insertBuilder = chain<CouncilProposalRow>({ data: baseRow, error: null });
 
-    const order: Array<'list' | 'evict' | 'insert'> = [];
+    const order: Array<'sweep' | 'list' | 'evict' | 'insert'> = [];
     fromSpy = vi.fn(() => {
       const n = order.length;
-      const kind = n === 0 ? 'list' : n === 1 ? 'evict' : 'insert';
+      const kind = n === 0 ? 'sweep' : n === 1 ? 'list' : n === 2 ? 'evict' : 'insert';
       order.push(kind);
-      return kind === 'list'
-        ? listBuilder
-        : kind === 'evict'
-          ? evictBuilder
-          : insertBuilder;
+      return kind === 'sweep'
+        ? sweepBuilder
+        : kind === 'list'
+          ? listBuilder
+          : kind === 'evict'
+            ? evictBuilder
+            : insertBuilder;
     });
     const log = vi.fn();
     const repo = new SupabaseProposalRepository({ from: fromSpy } as never, log);
@@ -170,6 +175,53 @@ describe('SupabaseProposalRepository (F12)', () => {
     expect(log).toHaveBeenCalledWith(
       expect.stringMatching(/dropped to make room/),
     );
+  });
+
+  it('expireStaleForUser scopes the archive sweep by user_id + status + past TTL', async () => {
+    builder = chain<Array<{ id: string }>>({
+      data: [{ id: 'a' }, { id: 'b' }],
+      error: null,
+    });
+    fromSpy = vi.fn(() => builder);
+    const repo = new SupabaseProposalRepository({ from: fromSpy } as never);
+    const n = await repo.expireStaleForUser({
+      userId: 'u1',
+      now: new Date('2026-05-01'),
+    });
+    expect(n).toBe(2);
+    expect(builder.update).toHaveBeenCalledWith({ status: 'expired' });
+    const eqCalls = builder.eq.mock.calls;
+    expect(eqCalls).toContainEqual(['user_id', 'u1']);
+    expect(eqCalls).toContainEqual(['status', 'pending']);
+    expect(builder.lt).toHaveBeenCalledWith(
+      'expires_at',
+      '2026-05-01T00:00:00.000Z',
+    );
+  });
+
+  it('create sweeps the user’s stale pending rows before counting the cap', async () => {
+    const sweepBuilder = chain<Array<{ id: string }>>({ data: [{ id: 'dead' }], error: null });
+    const listBuilder = chain<Array<{ id: string; created_at: string }>>({ data: [], error: null });
+    const insertBuilder = chain<CouncilProposalRow>({ data: baseRow, error: null });
+    const order: Array<'sweep' | 'list' | 'insert'> = [];
+    fromSpy = vi.fn(() => {
+      const n = order.length;
+      const kind = n === 0 ? 'sweep' : n === 1 ? 'list' : 'insert';
+      order.push(kind);
+      return kind === 'sweep' ? sweepBuilder : kind === 'list' ? listBuilder : insertBuilder;
+    });
+    const repo = new SupabaseProposalRepository({ from: fromSpy } as never);
+    await repo.create({
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 't' },
+    } as Parameters<typeof repo.create>[0]);
+    // The first write was an UPDATE to `expired` scoped to user_id 'u1'.
+    expect(sweepBuilder.update).toHaveBeenCalledWith({ status: 'expired' });
+    expect(sweepBuilder.eq.mock.calls).toContainEqual(['user_id', 'u1']);
+    expect(sweepBuilder.eq.mock.calls).toContainEqual(['status', 'pending']);
+    expect(order).toEqual(['sweep', 'list', 'insert']);
   });
 
   it('revertToPending un-approves a row and clears approved metadata', async () => {

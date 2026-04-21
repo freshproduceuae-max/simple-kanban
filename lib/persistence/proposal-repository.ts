@@ -15,6 +15,13 @@ export interface ProposalRepository {
   revertToPending(input: { id: string; userId: string }): Promise<CouncilProposalRow | null>;
   findById(input: { id: string; userId: string }): Promise<CouncilProposalRow | null>;
   expireStale(now: Date): Promise<number>;
+  /**
+   * User-scoped archive sweep. Flips every `pending` row belonging to
+   * `userId` whose `expires_at` has passed to `expired`. Called on the
+   * approve hot path (so the pending cap never counts dead rows) and
+   * when a lookup discovers the current row is past-TTL.
+   */
+  expireStaleForUser(input: { userId: string; now: Date }): Promise<number>;
 }
 
 export class ProposalRepositoryNotImplemented implements ProposalRepository {
@@ -31,6 +38,9 @@ export class ProposalRepositoryNotImplemented implements ProposalRepository {
     throw new Error('ProposalRepository: implementation lands with F12');
   }
   async expireStale(_now: Date): Promise<number> {
+    throw new Error('ProposalRepository: implementation lands with F12');
+  }
+  async expireStaleForUser(_input: { userId: string; now: Date }): Promise<number> {
     throw new Error('ProposalRepository: implementation lands with F12');
   }
 }
