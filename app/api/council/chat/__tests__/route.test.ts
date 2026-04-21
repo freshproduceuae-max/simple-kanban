@@ -5,6 +5,7 @@ const runCouncilTurnMock = vi.fn();
 const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
+const findResumableSession = vi.fn();
 const REAL_UUID = 'aaaaaaaa-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -20,6 +21,7 @@ vi.mock('@/lib/persistence/server', () => ({
     appendTurn: vi.fn(),
     listSessionsForUser: vi.fn(),
     listTurns: vi.fn(),
+    findResumableSession: (...a: unknown[]) => findResumableSession(...a),
   }),
   getCouncilMemoryRepository: () => ({
     writeSummary: (...a: unknown[]) => writeSummary(...a),
@@ -67,6 +69,7 @@ describe('POST /api/council/chat', () => {
     startSession.mockReset();
     writeSummary.mockReset();
     endSession.mockReset();
+    findResumableSession.mockReset();
     __resetSessionCacheForTests();
     getAuthedUserId.mockResolvedValue('u1');
     runCouncilTurnMock.mockResolvedValue(fakeTurn());
@@ -78,6 +81,19 @@ describe('POST /api/council/chat', () => {
       ended_at: null,
       summary_written_at: null,
     });
+    // Default: any well-formed client-provided UUID validates as live
+    // (simulating the common shelf-echo case). Tests that want to
+    // simulate a stale id override with mockResolvedValueOnce(null).
+    findResumableSession.mockImplementation(
+      async ({ sessionId }: { sessionId: string }) => ({
+        id: sessionId,
+        user_id: 'u1',
+        mode: 'chat',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      }),
+    );
     writeSummary.mockResolvedValue({});
     endSession.mockResolvedValue(undefined);
   });

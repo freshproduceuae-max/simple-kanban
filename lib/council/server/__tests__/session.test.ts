@@ -21,6 +21,7 @@ function makeSessionRepo(): {
   repo: SessionRepository;
   startSession: ReturnType<typeof vi.fn>;
   endSession: ReturnType<typeof vi.fn>;
+  findResumableSession: ReturnType<typeof vi.fn>;
 } {
   const startSession = vi.fn(
     async ({ userId, mode }: { userId: string; mode: CouncilMode }) => {
@@ -35,6 +36,10 @@ function makeSessionRepo(): {
     },
   );
   const endSession = vi.fn(async () => {});
+  // Default: DB knows of no resumable session. Tests that want to
+  // simulate "shelf echoes a real id that's still live" override via
+  // mockResolvedValueOnce.
+  const findResumableSession = vi.fn(async () => null);
   const repo: SessionRepository = {
     startSession,
     endSession,
@@ -45,8 +50,9 @@ function makeSessionRepo(): {
     })),
     listSessionsForUser: vi.fn(async () => []),
     listTurns: vi.fn(async () => []),
+    findResumableSession,
   };
-  return { repo, startSession, endSession };
+  return { repo, startSession, endSession, findResumableSession };
 }
 
 function makeMemoryRepo(): {
@@ -200,9 +206,49 @@ describe('resolveSessionId — F18 DB-backed', () => {
     expect(a).not.toBe(b);
   });
 
-  it('trusts a well-formed client-provided UUID without a DB call', async () => {
-    const { repo, startSession } = makeSessionRepo();
+  it('cache-hits on an echoed UUID within the idle window without a DB call', async () => {
+    const { repo, startSession, findResumableSession } = makeSessionRepo();
     const { repo: memoryRepo } = makeMemoryRepo();
+    const t0 = 1_000_000;
+
+    // First turn — no clientProvided, populates the cache via startSession.
+    await resolveSessionId({
+      userId: 'u1',
+      mode: 'chat',
+      now: t0,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    startSession.mockClear();
+
+    // Same user echoes the cached UUID back within the idle window →
+    // we trust the cache, no DB lookup, no new startSession.
+    const got = await resolveSessionId({
+      userId: 'u1',
+      mode: 'chat',
+      clientProvided: REAL_UUID_A,
+      now: t0 + 5_000,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    expect(got).toBe(REAL_UUID_A);
+    expect(startSession).not.toHaveBeenCalled();
+    expect(findResumableSession).not.toHaveBeenCalled();
+  });
+
+  it('validates a cold-start echoed UUID against the DB and trusts on hit', async () => {
+    const { repo, startSession, findResumableSession } = makeSessionRepo();
+    const { repo: memoryRepo } = makeMemoryRepo();
+    // Simulate serverless cold start: cache empty, client echoes a
+    // UUID it got from a prior (still-live) turn.
+    findResumableSession.mockResolvedValueOnce({
+      id: REAL_UUID_A,
+      user_id: 'u1',
+      mode: 'chat',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
     const got = await resolveSessionId({
       userId: 'u1',
       mode: 'chat',
@@ -211,7 +257,55 @@ describe('resolveSessionId — F18 DB-backed', () => {
       memoryRepo,
     });
     expect(got).toBe(REAL_UUID_A);
+    expect(findResumableSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: REAL_UUID_A,
+        userId: 'u1',
+        idleCutoffIso: expect.any(String),
+      }),
+    );
     expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('drops a client UUID the DB reports is not resumable and starts fresh', async () => {
+    // Stale / not-owned / past-idle / ended — DB returns null.
+    const { repo, startSession, findResumableSession } = makeSessionRepo();
+    const { repo: memoryRepo } = makeMemoryRepo();
+    findResumableSession.mockResolvedValueOnce(null);
+    startSession.mockResolvedValueOnce({
+      id: REAL_UUID_B,
+      user_id: 'u1',
+      mode: 'chat',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
+    const got = await resolveSessionId({
+      userId: 'u1',
+      mode: 'chat',
+      clientProvided: REAL_UUID_A,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    expect(got).toBe(REAL_UUID_B);
+    expect(findResumableSession).toHaveBeenCalledTimes(1);
+    expect(startSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('swallows findResumableSession errors and falls through to startSession', async () => {
+    const { repo, startSession, findResumableSession } = makeSessionRepo();
+    const { repo: memoryRepo } = makeMemoryRepo();
+    findResumableSession.mockRejectedValueOnce(new Error('db blip'));
+    const got = await resolveSessionId({
+      userId: 'u1',
+      mode: 'chat',
+      clientProvided: REAL_UUID_A,
+      sessionRepo: repo,
+      memoryRepo,
+      log: () => {},
+    });
+    expect(got).toBe(REAL_UUID_A); // from startSession default mock
+    expect(startSession).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a malformed client id and falls through to startSession', async () => {

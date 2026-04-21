@@ -306,7 +306,12 @@ describe('Consolidator (F10)', () => {
     expect(assistantRow.content).toContain(CONSOLIDATOR_FAIL_SENTENCE);
   });
 
-  it('schedules a session-pending summary via memoryRepo (cold path, best effort)', async () => {
+  it('does NOT write a per-turn session-pending summary (F18 cleanup)', async () => {
+    // The pre-F18 consolidator wrote an empty `session-pending` row to
+    // `council_memory_summaries` on every turn as a placeholder. Once
+    // F18 wired the real repo, those writes became junk memory that
+    // polluted the Researcher/greeting read path. The real session-end
+    // summary now comes from `finalizeSession` on idle rollover.
     const client = makeClientReturning(
       makeStream([
         { type: 'content_block_delta', delta: { type: 'text_delta', text: 'k' } },
@@ -320,46 +325,12 @@ describe('Consolidator (F10)', () => {
     );
     await drain(result.stream);
     await result.done;
-    // Let the queued microtask settle.
     await new Promise((r) => setTimeout(r, 0));
 
     const writeSummary = memoryRepo.writeSummary as unknown as {
       mock: { calls: unknown[][] };
     };
-    expect(writeSummary.mock.calls.length).toBe(1);
-    const row = writeSummary.mock.calls[0][0] as Record<string, unknown>;
-    expect(row.kind).toBe('session-pending');
-    expect(row.user_id).toBe('u1');
-    expect(row.session_id).toBe('s1');
-  });
-
-  it('does not throw when the memory-summary cold-path write fails', async () => {
-    const client = makeClientReturning(
-      makeStream([
-        { type: 'content_block_delta', delta: { type: 'text_delta', text: 'ok' } },
-      ])
-    );
-    const memoryRepo = {
-      listSummariesForUser: vi.fn().mockResolvedValue([]),
-      writeSummary: vi.fn().mockRejectedValue(new Error('db down')),
-      writeRecall: vi.fn(),
-      listRecallsForTurn: vi.fn(),
-    } as unknown as CouncilMemoryRepository;
-    const log = vi.fn();
-
-    const result = await consolidate(
-      { userId: 'u1', sessionId: 's1', userInput: 'hi' },
-      { client, sessionRepo: makeSessionRepo(), memoryRepo, log }
-    );
-    const text = await drain(result.stream);
-    await result.done;
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(text).toBe('ok');
-    expect(log).toHaveBeenCalledWith(
-      expect.stringMatching(/scheduleSummary best-effort failed/),
-      expect.any(Error)
-    );
+    expect(writeSummary.mock.calls.length).toBe(0);
   });
 
   it('swallows user-turn write failures so the user-facing reply still streams', async () => {

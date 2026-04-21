@@ -157,6 +157,95 @@ describe('SupabaseSessionRepository (F18)', () => {
     expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: true });
   });
 
+  describe('findResumableSession', () => {
+    it('returns null when the session is missing/not-owned/ended', async () => {
+      // maybeSingle yields `data: null` — our "not resumable" signal.
+      const builder = chain<CouncilSessionRow | null>({
+        data: null,
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const got = await repo.findResumableSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+        idleCutoffIso: '2026-04-21T00:00:00Z',
+      });
+      expect(got).toBeNull();
+      // Filters applied: id, user_id, ended_at IS NULL.
+      expect(builder.eq).toHaveBeenCalledWith('id', 'session-1');
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.is).toHaveBeenCalledWith('ended_at', null);
+    });
+
+    it('returns null when the last turn is older than the idle cutoff', async () => {
+      // First from() call returns the session; second returns the turns.
+      const sessionBuilder = chain<CouncilSessionRow>({
+        data: {
+          ...sessionRow,
+          started_at: '2026-04-01T00:00:00Z',
+        },
+        error: null,
+      });
+      const turnBuilder = chain<{ created_at: string }[]>({
+        data: [{ created_at: '2026-04-20T00:00:00Z' }],
+        error: null,
+      });
+      fromSpy
+        .mockReturnValueOnce(sessionBuilder)
+        .mockReturnValueOnce(turnBuilder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const got = await repo.findResumableSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+        idleCutoffIso: '2026-04-21T00:00:00Z',
+      });
+      expect(got).toBeNull();
+    });
+
+    it('returns the session when the last turn is inside the idle cutoff', async () => {
+      const sessionBuilder = chain<CouncilSessionRow>({
+        data: sessionRow,
+        error: null,
+      });
+      const turnBuilder = chain<{ created_at: string }[]>({
+        data: [{ created_at: '2026-04-21T00:10:00Z' }],
+        error: null,
+      });
+      fromSpy
+        .mockReturnValueOnce(sessionBuilder)
+        .mockReturnValueOnce(turnBuilder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const got = await repo.findResumableSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+        idleCutoffIso: '2026-04-21T00:00:00Z',
+      });
+      expect(got?.id).toBe('session-1');
+    });
+
+    it('falls back to started_at when there are no turns yet', async () => {
+      const sessionBuilder = chain<CouncilSessionRow>({
+        data: sessionRow, // started_at: '2026-04-21T00:00:00Z'
+        error: null,
+      });
+      const turnBuilder = chain<{ created_at: string }[]>({
+        data: [],
+        error: null,
+      });
+      fromSpy
+        .mockReturnValueOnce(sessionBuilder)
+        .mockReturnValueOnce(turnBuilder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const got = await repo.findResumableSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+        idleCutoffIso: '2026-04-20T23:59:59Z',
+      });
+      expect(got?.id).toBe('session-1');
+    });
+  });
+
   it('surfaces errors from the underlying client with a prefixed message', async () => {
     const builder = chain<CouncilSessionRow>({
       data: null as unknown as CouncilSessionRow,

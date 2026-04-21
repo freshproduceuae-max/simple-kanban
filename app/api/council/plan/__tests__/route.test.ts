@@ -6,6 +6,7 @@ const proposalCreateMock = vi.fn();
 const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
+const findResumableSession = vi.fn();
 const REAL_UUID = 'cccccccc-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -24,6 +25,7 @@ vi.mock('@/lib/persistence/server', () => ({
     appendTurn: vi.fn(),
     listSessionsForUser: vi.fn(),
     listTurns: vi.fn(),
+    findResumableSession: (...a: unknown[]) => findResumableSession(...a),
   }),
   getCouncilMemoryRepository: () => ({
     writeSummary: (...a: unknown[]) => writeSummary(...a),
@@ -72,6 +74,17 @@ describe('POST /api/council/plan', () => {
     startSession.mockReset();
     writeSummary.mockReset();
     endSession.mockReset();
+    findResumableSession.mockReset();
+    findResumableSession.mockImplementation(
+      async ({ sessionId }: { sessionId: string }) => ({
+        id: sessionId,
+        user_id: 'u1',
+        mode: 'plan',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      }),
+    );
     __resetSessionCacheForTests();
     getAuthedUserId.mockResolvedValue('u1');
     runCouncilTurnMock.mockResolvedValue(fakeTurn());

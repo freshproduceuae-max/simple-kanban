@@ -13,8 +13,12 @@ import type { CouncilMode } from '@/lib/persistence/types';
  *   - Same user, same idle window (30 min) → reuse the cached id.
  *   - New user, OR same user past the idle window → start a fresh
  *     `council_sessions` row and cache the new id.
- *   - Client-provided id (UUID) → trusted and cached without a DB
- *     write; the shelf already knows the id from a prior turn.
+ *   - Client-provided id (UUID) → validated before trust. If it
+ *     matches the cache entry within the idle window we skip the DB
+ *     entirely; otherwise we ask the repo for a `findResumableSession`
+ *     lookup (owned by user, still open, activity within idle cutoff).
+ *     Anything stale or unknown is dropped and we fall through as if
+ *     no id had been echoed.
  *
  * When the idle window closes we fire-and-forget a cold-path end-of-
  * session pass: stamp `ended_at` on the previous row and write a
@@ -83,15 +87,43 @@ export async function resolveSessionId(
   const now = input.now ?? Date.now();
   const log = input.log ?? ((msg, err) => console.error(msg, err));
 
-  // Client echoed an id back — trust it if well-formed.
+  // Client echoed an id back. A well-formed UUID is necessary but not
+  // sufficient — we must prove it's still a live session this user
+  // owns before we cache it, otherwise stale shelf state pins the
+  // user to a dead session forever (and causes FK failures on the
+  // next appendTurn / proposal insert).
   const trimmed = input.clientProvided?.trim();
   if (trimmed && isUuid(trimmed)) {
-    sessionByUser.set(input.userId, {
-      sessionId: trimmed,
-      lastTouchedAt: now,
-      mode: input.mode,
-    });
-    return trimmed;
+    const cached = sessionByUser.get(input.userId);
+    if (
+      cached &&
+      cached.sessionId === trimmed &&
+      now - cached.lastTouchedAt <= SESSION_IDLE_WINDOW_MS
+    ) {
+      cached.lastTouchedAt = now;
+      return trimmed;
+    }
+
+    const idleCutoffIso = new Date(now - SESSION_IDLE_WINDOW_MS).toISOString();
+    try {
+      const row = await input.sessionRepo.findResumableSession({
+        sessionId: trimmed,
+        userId: input.userId,
+        idleCutoffIso,
+      });
+      if (row) {
+        sessionByUser.set(input.userId, {
+          sessionId: row.id,
+          lastTouchedAt: now,
+          mode: row.mode,
+        });
+        return row.id;
+      }
+      // Row came back null — stale, unknown, or past idle. Fall
+      // through to the cache/startSession flow below.
+    } catch (err) {
+      log('session: findResumableSession failed (falling through)', err);
+    }
   }
 
   const existing = sessionByUser.get(input.userId);

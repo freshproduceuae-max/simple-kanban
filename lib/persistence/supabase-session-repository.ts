@@ -101,6 +101,46 @@ export class SupabaseSessionRepository implements SessionRepository {
     return (data ?? []) as CouncilSessionRow[];
   }
 
+  async findResumableSession(input: {
+    sessionId: string;
+    userId: string;
+    idleCutoffIso: string;
+  }): Promise<CouncilSessionRow | null> {
+    // 1) Session must exist, be owned, and still be open.
+    const { data: session, error: sErr } = await this.client
+      .from('council_sessions')
+      .select('*')
+      .eq('id', input.sessionId)
+      .eq('user_id', input.userId)
+      .is('ended_at', null)
+      .maybeSingle();
+    if (sErr)
+      throw new Error(
+        `SessionRepository.findResumableSession: ${sErr.message}`,
+      );
+    if (!session) return null;
+
+    // 2) Last activity must be within the idle cutoff. We take the
+    // newest turn's `created_at` and fall back to `started_at` when
+    // there are no turns yet (first resolve before any appendTurn).
+    const { data: turns, error: tErr } = await this.client
+      .from('council_turns')
+      .select('created_at')
+      .eq('session_id', input.sessionId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (tErr)
+      throw new Error(
+        `SessionRepository.findResumableSession: ${tErr.message}`,
+      );
+    const row = session as CouncilSessionRow;
+    const lastActivityIso =
+      (turns?.[0] as { created_at?: string } | undefined)?.created_at ??
+      row.started_at;
+    if (lastActivityIso < input.idleCutoffIso) return null;
+    return row;
+  }
+
   async listTurns(sessionId: string): Promise<CouncilTurnRow[]> {
     const { data, error } = await this.client
       .from('council_turns')

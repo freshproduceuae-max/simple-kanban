@@ -107,7 +107,7 @@ describe('SupabaseCouncilMemoryRepository (F18 summaries)', () => {
     await expect(
       repo.writeSummary({
         user_id: 'u1',
-        session_id: null,
+        session_id: 'session-1',
         kind: 'session-end',
         content: 'x',
       }),

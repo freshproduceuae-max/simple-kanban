@@ -160,22 +160,12 @@ export async function consolidate(
     content: input.userInput,
   });
 
-  // Schedule session-end summary via a cold-path queue. The queue impl
-  // lands at F18; here we just ask the repo to write an empty summary
-  // row keyed to (user, session, 'pending'). If memoryRepo is still the
-  // NotImplemented stub this is swallowed.
-  void (async () => {
-    try {
-      await deps.memoryRepo.writeSummary({
-        user_id: input.userId,
-        session_id: input.sessionId,
-        kind: 'session-pending',
-        content: '',
-      });
-    } catch (err) {
-      log('consolidator: scheduleSummary best-effort failed', err);
-    }
-  })();
+  // No per-turn summary write here. F18 wires the real session-end
+  // summary via `finalizeSession` in `lib/council/server/session.ts`
+  // on idle rollover. An empty `session-pending` placeholder per turn
+  // would bloat `council_memory_summaries` and pollute Researcher /
+  // greeting reads, which fetch the newest summaries without filtering
+  // on non-empty content.
 
   // One retry, then surface the failure sentence. The retry wraps the
   // stream *acquisition*, not the streaming itself (a mid-stream error
