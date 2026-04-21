@@ -4,6 +4,7 @@ import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { userRequestedPlanHandoff } from '@/lib/council/shared/handoff-request';
+import { userRequestedWeb } from '@/lib/council/shared/web-request';
 import { getTaskRepository } from '@/lib/persistence/server';
 import type { TaskRow } from '@/lib/persistence/types';
 import { SessionRepositoryNotImplemented } from '@/lib/persistence/session-repository';
@@ -98,8 +99,17 @@ export async function POST(request: Request) {
       typeof body.sessionId === 'string' ? body.sessionId : undefined,
   });
 
-  // Two-step web confirm: disabled unless the client echoes back true.
-  const webEnabled = body.confirmWebFetch === true;
+  // Two-step web confirm (PRD §6.3 / §7): web is only allowed when
+  // BOTH conditions are met simultaneously:
+  //   1. The user's own turn text asks for it (phrase-match via
+  //      `userRequestedWeb`).
+  //   2. The client echoes `confirmWebFetch: true` — the user-tap
+  //      confirmation that follows the first step.
+  // Relying on the client flag alone would let stale/buggy callers
+  // flip web on for ordinary advice turns, burning the 5-call budget
+  // on requests the server should have kept memory-only.
+  const webEnabled =
+    body.confirmWebFetch === true && userRequestedWeb(userInput);
 
   // Plan-handoff phrase match — decided up front so the trailer shape
   // is known before the stream starts. No LLM call is required; the
@@ -154,5 +164,11 @@ export async function POST(request: Request) {
     trailer,
   });
   res.headers.set('x-council-session-id', sessionId);
+  // Advise knows pre-stream whether a trailer will be emitted (handoff
+  // is decided on the user input, not the Consolidator output), so
+  // the header can be advertised honestly here.
+  if (planHandoff) {
+    res.headers.set('x-council-has-proposals', 'true');
+  }
   return res;
 }

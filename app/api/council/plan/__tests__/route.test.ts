@@ -101,7 +101,7 @@ describe('POST /api/council/plan', () => {
     expect(input.forceCritic).toBe(true);
   });
 
-  it('streams the reply with x-council-mode + session id + has-proposals headers when tasks exist', async () => {
+  it('streams the reply with x-council-mode + session id (no has-proposals header — Plan cannot promise pre-stream)', async () => {
     runCouncilTurnMock.mockResolvedValueOnce(
       fakeTurn({
         streamText: 'sure, here is a draft plan…',
@@ -114,13 +114,30 @@ describe('POST /api/council/plan', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('x-council-mode')).toBe('plan');
     expect(res.headers.get('x-council-session-id')).toBeTruthy();
-    expect(res.headers.get('x-council-has-proposals')).toBe('true');
+    expect(res.headers.get('x-council-has-proposals')).toBeNull();
     const body = await res.text();
     // First line is the streamed human reply; last line is the JSON trailer.
     const lines = body.split('\n');
     const trailer = JSON.parse(lines[lines.length - 1]);
     expect(trailer.proposals).toHaveLength(2);
     expect(Array.isArray(trailer.proposals)).toBe(true);
+  });
+
+  it('passes session_id: null to proposal.create (F18 bridge — no council_sessions row exists yet)', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t"]}\n```',
+      }),
+    );
+    await planRoute(
+      req({ sessionId: 'client-synthetic-abc', userInput: 'plan' }),
+    ).then((r) => r.text());
+    expect(proposalCreateMock).toHaveBeenCalledTimes(1);
+    const arg = proposalCreateMock.mock.calls[0][0];
+    expect(arg.session_id).toBeNull();
+    // The synthetic sessionId still rides the response header for
+    // client-side conversation stitching; it just doesn't reach the
+    // FK column.
   });
 
   it('creates one proposal per drafted task via the proposal repo', async () => {

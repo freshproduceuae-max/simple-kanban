@@ -98,11 +98,29 @@ describe('POST /api/council/advise', () => {
     expect(input.forceCritic).toBe(false);
   });
 
-  it('enables web only when confirmWebFetch === true', async () => {
+  it('requires BOTH confirmWebFetch AND an explicit user web request (PRD §6.3/§7)', async () => {
+    // confirmWebFetch alone — not enough. The user's turn must ask for it too.
     await adviseRoute(
-      req({ userInput: 'look at my board', confirmWebFetch: true }),
+      req({ userInput: 'what do you think of my board?', confirmWebFetch: true }),
+    );
+    expect(runCouncilTurnMock.mock.calls[0][0].webEnabled).toBe(false);
+    runCouncilTurnMock.mockClear();
+
+    // Both present → web on.
+    await adviseRoute(
+      req({
+        userInput: 'please look this up before you answer',
+        confirmWebFetch: true,
+      }),
     );
     expect(runCouncilTurnMock.mock.calls[0][0].webEnabled).toBe(true);
+    runCouncilTurnMock.mockClear();
+
+    // Request without confirmation → web off even if the user asked.
+    await adviseRoute(
+      req({ userInput: 'please look this up', confirmWebFetch: false }),
+    );
+    expect(runCouncilTurnMock.mock.calls[0][0].webEnabled).toBe(false);
   });
 
   it('projects the board snapshot down to {id, title, board_column, overdue_at}', async () => {

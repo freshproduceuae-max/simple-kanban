@@ -22,6 +22,16 @@ describe('streamCouncilReply', () => {
     expect(await res.text()).toBe('hello world');
   });
 
+  it('never sets x-council-has-proposals — callers set it themselves when emission is guaranteed pre-stream', async () => {
+    const res = streamCouncilReply({
+      chunks: makeStream(['x']),
+      done: Promise.resolve(),
+      mode: 'plan',
+      trailer: async () => ({ proposals: ['p1'] }),
+    });
+    expect(res.headers.get('x-council-has-proposals')).toBeNull();
+  });
+
   it('emits a JSON trailer on a fresh line when trailer() returns a payload', async () => {
     const res = streamCouncilReply({
       chunks: makeStream(['reply text']),
@@ -29,7 +39,6 @@ describe('streamCouncilReply', () => {
       mode: 'plan',
       trailer: async () => ({ proposals: ['p1', 'p2'] }),
     });
-    expect(res.headers.get('x-council-has-proposals')).toBe('true');
     const body = await res.text();
     const lines = body.split('\n');
     expect(lines[0]).toBe('reply text');

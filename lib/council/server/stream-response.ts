@@ -12,9 +12,16 @@
  *
  * A trailing JSON frame is supported so F16 Plan can emit
  * `{"proposals":["p1","p2"]}` after the human-readable text. Clients
- * slice the last LF-delimited line and JSON.parse it. The header
- * `x-council-has-proposals: true` signals the trailer will be present;
- * absence means pure text.
+ * that may receive a trailer should slice the last LF-delimited line
+ * and attempt a JSON.parse, falling back to treating the whole body
+ * as text on parse failure.
+ *
+ * The wrapper does NOT set `x-council-has-proposals` on its own —
+ * advertising a trailer the route can't guarantee would mislead
+ * clients on turns that end up emitting no frame. Callers that KNOW
+ * pre-stream that a trailer will be present (e.g. Advise when a Plan
+ * handoff is already decided) set the header on the returned
+ * Response themselves.
  *
  * Errors inside the trailer are logged and swallowed — a trailer miss
  * must never truncate the user-visible reply.
@@ -37,8 +44,9 @@ export type StreamCouncilReplyInput = {
    * appended to the stream on a fresh line. Return `null` to skip the
    * trailer for this response.
    *
-   * When this property is present we emit `x-council-has-proposals`
-   * so the client knows to look for the trailer line.
+   * Note: the wrapper does not advertise the trailer via a response
+   * header; callers that can promise emission pre-stream set their
+   * own header on the returned Response.
    */
   trailer?: () => Promise<Record<string, unknown> | null>;
   /** Optional logger; defaults to console.error. */
@@ -89,9 +97,6 @@ export function streamCouncilReply(input: StreamCouncilReplyInput): Response {
     'cache-control': 'no-store',
     'x-council-mode': input.mode,
   };
-  if (input.trailer) {
-    headers['x-council-has-proposals'] = 'true';
-  }
 
   return new Response(webStream, { status: 200, headers });
 }

@@ -27,7 +27,10 @@ import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council
  *   Headers:
  *     x-council-mode: plan
  *     x-council-session-id: <resolved session id>
- *     x-council-has-proposals: true
+ *   (No `x-council-has-proposals` header — Plan cannot promise a
+ *   trailer pre-stream, so the client should always attempt to
+ *   JSON.parse the last LF-delimited line and fall back to treating
+ *   the whole body as text on failure.)
  *
  * Errors:
  *   401 not-authenticated
@@ -103,7 +106,15 @@ export async function POST(request: Request) {
         try {
           const row = await repo.create({
             user_id: userId,
-            session_id: sessionId,
+            // F18 bridge: council_proposals.session_id is a FK to
+            // council_sessions(id), and F18 is the phase that starts
+            // inserting those rows. Until F18 lands we persist
+            // proposal rows with a null session linkage; the response
+            // header `x-council-session-id` still threads the
+            // synthetic session id to the client for conversation
+            // stitching. Do NOT flip this back to `sessionId` without
+            // first shipping F18's session-lifecycle writes.
+            session_id: null,
             kind: 'task',
             payload: { title },
           } as Parameters<typeof repo.create>[0]);
