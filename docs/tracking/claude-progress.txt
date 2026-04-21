@@ -3,6 +3,31 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-21 F12+F13+F14 open — Write Gate + proposal card + greeting batched (PR #29)
+- PR #28 (F09/F10/F11) merged 878e276. CD instruction post-F11: "not only 12 — do 3 features together or more and prepare for an approval after few hours." Same batch template as #28.
+- Branch: feat/v0.4-F12-F13-F14-write-gate-and-greeting.
+- Commit 1 — F12 Council Write Gate server contract (c6be8f3):
+  * lib/persistence/supabase-proposal-repository.ts (NEW) — SupabaseProposalRepository with create (24h TTL, FIFO cap of 10 pending per user via enforcePendingCap), markApproved (stores SHA-256 hash only; `.eq('status','pending')` = defensive transition guard), findById, expireStale. Constants PROPOSAL_TTL_MS, PENDING_CAP_PER_USER.
+  * lib/persistence/server.ts — getProposalRepository() request-bound factory alongside getTaskRepository().
+  * lib/council/write-gate/verify.ts (NEW) — mintApprovalToken() (32-byte base64url), hashApprovalToken() (sha256 hex), verifyApprovalContext(). Repo throws collapse to 'verification-failed' so DB errors don't leak reason codes through the API surface.
+  * app/api/council/proposals/route.ts — POST create. kind validated via `['task','memo','advice'] as const` readonly tuple + .includes (Set iteration triggers TS2802). Returns 201 {proposalId, expiresAt, status}.
+  * app/api/council/proposals/[id]/approve/route.ts — atomic: findById → 410 if expired or not-pending → mint+hash+markApproved → for kind='task' taskRepo.create with approvalContext {proposalId, approvalToken}. 422 empty-title, 404 missing.
+  * lib/board/actions.ts left on the mintUserApprovalContext() path — user-originated mutations are shape-checked by assertApprovalContext in supabase-task-repository; repo-row verification is ONLY for Council-originated approvals via the approve endpoint. Documented decision.
+  * Tests: +27. supabase-proposal-repository (6): 24h expires_at math, markApproved eq('status','pending'), findById user-scoping, expireStale count, FIFO evict oldest at cap, Supabase error surface. write-gate/verify (8): happy, hash mismatch, missing row, expired, pending-not-approved, bad-shape short-circuit (no DB), repo-throw=verification-failed, mint format, hash determinism. proposals route (13): both create + approve; approve test rehashes forwarded plaintext and asserts match against markApproved's stored hash.
+- Commit 2 — F13 proposal card + tap-to-approve flow (63809b4):
+  * components/proposal-card/ProposalCard.tsx — real component. States pending|approving|approved|expired|failed. Dashed border var(--color-border-default), --shadow-proposal. Tap flash: 150ms scale-[0.98] bg-accent-moss-300/25 (APPROVE_FLASH_MS). POSTs /api/council/proposals/${id}/approve via injectable `approveFetch` prop (test seam). 410 → expired state (archive-with-explanation, onArchived('expired')); 5xx → failed w/ Try-again rearm; mid-flight double-tap blocked by state check. expiresAt respected on mount.
+  * Tests: +7. Render pending, POST to approve endpoint, success → approved+callbacks, 410 → expired+archived, 5xx → failed+retry, expired-on-mount, double-tap guard. TS tuple destructure fix: `const call = approveFetch.mock.calls[0] as unknown as [string, RequestInit]`.
+- Commit 3 — F14 morning greeting flow (24c2b85):
+  * lib/council/greeting/index.ts (NEW) — deriveGreetingSignals (column counts, top-1 overdue title with 40-char genericize-for-privacy, 30-day staleness horizon so ancient cards never cited), capGreeting (≤2 sentences AND ≤200 chars, word-boundary backoff, '…' on truncate, fail sentence on empty), composeFullGreeting (single-emit invariant; NEVER attaches tools — memory-only hot path per vision §9; memoryRepo throw → degrade to no-summaries + log; SDK throw → fail sentence). shortReentryLine for same-day opens.
+  * lib/council/greeting/last-session.ts (NEW) — factored council_sessions most-recent started_at query into its own module so the route test mocks at a clean named seam instead of mocking the full .from().select()...maybeSingle() builder chain. Pattern: when a chain caller is the only thing your test cares about, give it a name.
+  * app/api/council/greeting/route.ts — POST. first-of-day → text/plain ReadableStream w/ `x-greeting-kind: full`; same-day → JSON {kind:'reentry', text}. Tz-math rewrite after Asia/Dubai (UTC+4) CI false-positive: original toLocaleString+parse-as-local put boundary 4h in the future so "60s ago" < boundary → incorrectly flagged first-of-day. Replaced with Intl.DateTimeFormat offset probing (format UTC midnight through tz, read clock hh:mm:ss, subtract). Machine-independent.
+  * Tests: +19 (+13 composer, +6 route). Composer test "degrades gracefully" had a 5s timeout — root cause: test awaited `done` before draining stream, but done only resolves after drain via try/finally. Fix: drain first (`for await (const _ of stream) void _;`), then await done.
+- 280/280 tests green, typecheck 0, lint clean, `npm run build` green. 18 routes (15 + /api/council/proposals, /api/council/proposals/[id]/approve, /api/council/greeting).
+- Lesson (added to rules in spirit): tz-sensitive math → Intl.DateTimeFormat offset probing, never toLocaleString + parse-as-local.
+- Lesson: factor single-purpose Supabase-chain callers into named modules so route tests mock at a clean seam rather than chaining vi.mock returnThis trees.
+
+---
+
 2026-04-21 F09+F10+F11 open — Council agent trio batched (PR #28)
 - PR #27 (F08) merged c7ee63b. F08 passes:true. Codex re-review clean after iterator-cancellation fix (captured iterator via [Symbol.asyncIterator](), cleanup calls return?.()).
 - CD instruction post-F08: "Open the next batch as one PR for F09 + F10 + F11... three sequential commits, one feature per commit, each commit lands impl + tests + features.json pass flip. Keep scope tight to the Council agent trio only; no opportunistic refactors."

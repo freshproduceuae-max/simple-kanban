@@ -209,7 +209,7 @@
         "Unit test: direct task-mutation without proposalId is rejected",
         "Unit test: expired proposal returns 410"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F13",
@@ -225,7 +225,7 @@
         "On tap: scale(0.98) + moss-tinted flash per §9.3, then post approval, then animate into target column",
         "On expiry: archive visually with a fade + explanation line"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F14",
@@ -242,7 +242,7 @@
         "Route through Consolidator streaming; render with thinking-stream cursor",
         "Fall through to the short re-entry line on subsequent same-day opens"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F15",

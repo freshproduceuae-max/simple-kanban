@@ -15,8 +15,14 @@
  */
 import { createServerClient } from '@/lib/supabase/server';
 import { SupabaseTaskRepository } from './supabase-task-repository';
+import { SupabaseProposalRepository } from './supabase-proposal-repository';
 import type { TaskRepository } from './task-repository';
+import type { ProposalRepository } from './proposal-repository';
 
 export function getTaskRepository(): TaskRepository {
   return new SupabaseTaskRepository(createServerClient());
+}
+
+export function getProposalRepository(): ProposalRepository {
+  return new SupabaseProposalRepository(createServerClient());
 }
