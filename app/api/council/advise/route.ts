@@ -5,10 +5,12 @@ import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { userRequestedPlanHandoff } from '@/lib/council/shared/handoff-request';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
-import { getTaskRepository } from '@/lib/persistence/server';
+import {
+  getTaskRepository,
+  getSessionRepository,
+  getCouncilMemoryRepository,
+} from '@/lib/persistence/server';
 import type { TaskRow } from '@/lib/persistence/types';
-import { SessionRepositoryNotImplemented } from '@/lib/persistence/session-repository';
-import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council-memory-repository';
 
 /**
  * POST /api/council/advise  (F17 — Advise mode)
@@ -93,10 +95,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionId = resolveSessionId({
+  const sessionRepo = getSessionRepository();
+  const memoryRepo = getCouncilMemoryRepository();
+  const sessionId = await resolveSessionId({
     userId,
+    mode: 'advise',
     clientProvided:
       typeof body.sessionId === 'string' ? body.sessionId : undefined,
+    sessionRepo,
+    memoryRepo,
   });
 
   // Two-step web confirm (PRD §6.3 / §7): web is only allowed when
@@ -141,8 +148,8 @@ export async function POST(request: Request) {
       forceCritic: false,
     },
     {
-      sessionRepo: new SessionRepositoryNotImplemented(),
-      memoryRepo: new CouncilMemoryRepositoryNotImplemented(),
+      sessionRepo,
+      memoryRepo,
     },
   );
 

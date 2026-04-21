@@ -3,6 +3,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const getAuthedUserId = vi.fn();
 const runCouncilTurnMock = vi.fn();
 const listForUserMock = vi.fn();
+const startSession = vi.fn();
+const writeSummary = vi.fn();
+const endSession = vi.fn();
+const REAL_UUID = 'ffffffff-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
   getAuthedUserId: () => getAuthedUserId(),
@@ -13,6 +17,19 @@ vi.mock('@/lib/council/server/dispatch', () => ({
 vi.mock('@/lib/persistence/server', () => ({
   getTaskRepository: () => ({
     listForUser: (...a: unknown[]) => listForUserMock(...a),
+  }),
+  getSessionRepository: () => ({
+    startSession: (...a: unknown[]) => startSession(...a),
+    endSession: (...a: unknown[]) => endSession(...a),
+    appendTurn: vi.fn(),
+    listSessionsForUser: vi.fn(),
+    listTurns: vi.fn(),
+  }),
+  getCouncilMemoryRepository: () => ({
+    writeSummary: (...a: unknown[]) => writeSummary(...a),
+    listSummariesForUser: vi.fn(async () => []),
+    writeRecall: vi.fn(),
+    listRecallsForTurn: vi.fn(),
   }),
 }));
 
@@ -60,10 +77,23 @@ describe('POST /api/council/advise', () => {
     getAuthedUserId.mockReset();
     runCouncilTurnMock.mockReset();
     listForUserMock.mockReset();
+    startSession.mockReset();
+    writeSummary.mockReset();
+    endSession.mockReset();
     __resetSessionCacheForTests();
     getAuthedUserId.mockResolvedValue('u1');
     runCouncilTurnMock.mockResolvedValue(fakeTurn());
     listForUserMock.mockResolvedValue([]);
+    startSession.mockResolvedValue({
+      id: REAL_UUID,
+      user_id: 'u1',
+      mode: 'advise',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
+    writeSummary.mockResolvedValue({});
+    endSession.mockResolvedValue(undefined);
   });
 
   it('401 when unauthenticated', async () => {
@@ -165,17 +195,15 @@ describe('POST /api/council/advise', () => {
     expect(body).toBe('advise reply');
   });
 
-  it('honors a client-provided sessionId', async () => {
-    await adviseRoute(
-      req({ sessionId: 'client-advise-xyz', userInput: 'advise' }),
-    );
-    expect(runCouncilTurnMock.mock.calls[0][0].sessionId).toBe(
-      'client-advise-xyz',
-    );
+  it('honors a client-provided UUID sessionId', async () => {
+    const clientId = '12345678-1111-4222-8333-444444444444';
+    await adviseRoute(req({ sessionId: clientId, userInput: 'advise' }));
+    expect(runCouncilTurnMock.mock.calls[0][0].sessionId).toBe(clientId);
     // And puts it on the response header.
     const res = await adviseRoute(
-      req({ sessionId: 'client-advise-xyz', userInput: 'advise again' }),
+      req({ sessionId: clientId, userInput: 'advise again' }),
     );
-    expect(res.headers.get('x-council-session-id')).toBe('client-advise-xyz');
+    expect(res.headers.get('x-council-session-id')).toBe(clientId);
+    expect(startSession).not.toHaveBeenCalled();
   });
 });

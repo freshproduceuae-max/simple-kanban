@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUserId } from '@/lib/auth/current-user';
-import { getTaskRepository } from '@/lib/persistence/server';
+import {
+  getTaskRepository,
+  getCouncilMemoryRepository,
+} from '@/lib/persistence/server';
 import {
   composeFullGreeting,
   deriveGreetingSignals,
@@ -9,7 +12,6 @@ import {
 } from '@/lib/council/greeting';
 import { lastSessionStartedAt } from '@/lib/council/greeting/last-session';
 import { localMidnightBoundaryISO } from '@/lib/council/greeting/local-midnight';
-import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council-memory-repository';
 
 /**
  * POST /api/council/greeting (F14).
@@ -87,7 +89,7 @@ export async function POST(request: Request) {
   // Full greeting — stream as text/plain.
   const { stream, done } = await composeFullGreeting(
     { userId, signals },
-    { memoryRepo: new CouncilMemoryRepositoryNotImplemented() },
+    { memoryRepo: getCouncilMemoryRepository() },
   );
 
   const encoder = new TextEncoder();

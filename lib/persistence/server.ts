@@ -16,8 +16,12 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { SupabaseTaskRepository } from './supabase-task-repository';
 import { SupabaseProposalRepository } from './supabase-proposal-repository';
+import { SupabaseSessionRepository } from './supabase-session-repository';
+import { SupabaseCouncilMemoryRepository } from './supabase-council-memory-repository';
 import type { TaskRepository } from './task-repository';
 import type { ProposalRepository } from './proposal-repository';
+import type { SessionRepository } from './session-repository';
+import type { CouncilMemoryRepository } from './council-memory-repository';
 
 export function getTaskRepository(): TaskRepository {
   return new SupabaseTaskRepository(createServerClient());
@@ -25,4 +29,12 @@ export function getTaskRepository(): TaskRepository {
 
 export function getProposalRepository(): ProposalRepository {
   return new SupabaseProposalRepository(createServerClient());
+}
+
+export function getSessionRepository(): SessionRepository {
+  return new SupabaseSessionRepository(createServerClient());
+}
+
+export function getCouncilMemoryRepository(): CouncilMemoryRepository {
+  return new SupabaseCouncilMemoryRepository(createServerClient());
 }

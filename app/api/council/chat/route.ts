@@ -4,8 +4,10 @@ import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
-import { SessionRepositoryNotImplemented } from '@/lib/persistence/session-repository';
-import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council-memory-repository';
+import {
+  getSessionRepository,
+  getCouncilMemoryRepository,
+} from '@/lib/persistence/server';
 
 /**
  * POST /api/council/chat  (F15 — Chat mode)
@@ -29,11 +31,10 @@ import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council
  *   401 not-authenticated
  *   400 userInput missing/empty/non-string
  *
- * The SessionRepository + CouncilMemoryRepository both remain at their
- * NotImplemented stubs until F18 lands. The agent trio swallows their
- * throws on turn-write / summary-read paths by design, so routing them
- * in here is safe. F18 will swap the concrete repos in via
- * lib/persistence/server.ts without touching this file.
+ * F18 landed: sessionId is now a real `council_sessions.id` and the
+ * agent trio writes turn logs against it synchronously. The resolver
+ * will start a fresh session on the first turn of a new user /
+ * expired idle window.
  */
 
 type ChatRequest = {
@@ -65,10 +66,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionId = resolveSessionId({
+  const sessionRepo = getSessionRepository();
+  const memoryRepo = getCouncilMemoryRepository();
+  const sessionId = await resolveSessionId({
     userId,
+    mode: 'chat',
     clientProvided:
       typeof body.sessionId === 'string' ? body.sessionId : undefined,
+    sessionRepo,
+    memoryRepo,
   });
 
   const webEnabled = userRequestedWeb(userInput);
@@ -83,8 +89,8 @@ export async function POST(request: Request) {
       forceCritic: false,
     },
     {
-      sessionRepo: new SessionRepositoryNotImplemented(),
-      memoryRepo: new CouncilMemoryRepositoryNotImplemented(),
+      sessionRepo,
+      memoryRepo,
     },
   );
 

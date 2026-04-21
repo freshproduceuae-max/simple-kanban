@@ -17,9 +17,17 @@ export { SupabaseTaskRepository } from './supabase-task-repository';
 
 export { CouncilMemoryRepositoryNotImplemented } from './council-memory-repository';
 export type { CouncilMemoryRepository } from './council-memory-repository';
+export {
+  SupabaseCouncilMemoryRepository,
+  DEFAULT_SUMMARY_LIMIT,
+} from './supabase-council-memory-repository';
 
 export { SessionRepositoryNotImplemented } from './session-repository';
 export type { SessionRepository } from './session-repository';
+export {
+  SupabaseSessionRepository,
+  DEFAULT_SESSIONS_PAGE_SIZE,
+} from './supabase-session-repository';
 
 export { ProposalRepositoryNotImplemented } from './proposal-repository';
 export type { ProposalRepository } from './proposal-repository';
