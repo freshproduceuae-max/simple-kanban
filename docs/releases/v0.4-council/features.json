@@ -307,7 +307,7 @@
         "Schedule cold-path summary job that writes council_memory_summaries at session end",
         "Increment modes-used histogram on session start"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F19",
@@ -322,7 +322,7 @@
         "Paginate by creation date desc",
         "Derive session title from first user turn or Consolidator-picked topic at session end"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F20",
