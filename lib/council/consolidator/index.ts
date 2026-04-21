@@ -71,7 +71,17 @@ type StreamEvent =
 
 function buildSystemPrompt(mode: CouncilMode, researcherFindings?: string): string {
   const modeHint = {
-    plan: "Mode: Plan. You are shaping a new piece of work. Be concrete, numbered if it helps.",
+    plan:
+      "Mode: Plan. You are shaping a new piece of work. Be concrete, numbered if it helps. " +
+      // F16 — append a fenced structured frame the Plan route parses to
+      // create one proposal row per draft task. The fence is required
+      // for the route to surface proposal cards; omit `chips` when the
+      // topic is concrete enough to stand on its own.
+      'At the very end of your reply, append a fenced code block tagged `json-plan` ' +
+      'containing JSON of the form ' +
+      '`{ "tasks": ["title one", "title two"], "chips": ["scope?", "by when?"] }`. ' +
+      'Include only the tasks you actually want to draft. Omit the `chips` field unless ' +
+      'a short follow-up question would genuinely sharpen the draft.',
     advise: "Mode: Advise. You are reacting to the user's current board. Be brief. No committed board changes.",
     chat: "Mode: Chat. Ordinary exchange. Be present, not verbose.",
     greeting: 'Mode: Greeting. Two short sentences, under 200 characters total.',
