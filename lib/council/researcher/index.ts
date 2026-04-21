@@ -49,21 +49,40 @@ export type ResearcherDeps = {
 };
 
 /**
- * Per-session web-call rate limit. PRD §7 + features.json F16 step 3:
- * Plan mode ≤ 10 web calls per session. In-memory Map is fine for v0.4
- * (single-process Vercel serverless; state is per-invocation). A real
- * multi-region quota lands at F22.
+ * Per-session web-call rate limit. PRD §7 + features.json F15/F16/F17:
+ *   - Plan mode   ≤ 10 web calls per session (Researcher web always on)
+ *   - Advise mode ≤  5 web calls per session (only after user confirm)
+ *   - Chat mode   ≤  5 web calls per session (only on explicit request)
+ *   - Greeting    web disabled; no counter touched
+ *
+ * In-memory Map is fine for v0.4 (single-process Vercel serverless;
+ * state is per-invocation). A real multi-region quota lands at F22.
+ * Keyed by `${mode}:${sessionId}` so Plan and Chat usage in the same
+ * session don't cross-subsidize each other's caps.
  */
-const WEB_CALLS_PER_SESSION_MAX = 10;
-const webCallCountBySession = new Map<string, number>();
+export const WEB_CALLS_PER_SESSION_MAX_BY_MODE: Readonly<
+  Record<CouncilMode, number>
+> = {
+  plan: 10,
+  advise: 5,
+  chat: 5,
+  greeting: 0,
+};
+
+const webCallCountByKey = new Map<string, number>();
 
 export function __resetWebRateLimitForTests(): void {
-  webCallCountBySession.clear();
+  webCallCountByKey.clear();
 }
 
-function incrementWebCallCount(sessionId: string): number {
-  const next = (webCallCountBySession.get(sessionId) ?? 0) + 1;
-  webCallCountBySession.set(sessionId, next);
+function rateLimitKey(mode: CouncilMode, sessionId: string): string {
+  return `${mode}:${sessionId}`;
+}
+
+function incrementWebCallCount(mode: CouncilMode, sessionId: string): number {
+  const key = rateLimitKey(mode, sessionId);
+  const next = (webCallCountByKey.get(key) ?? 0) + 1;
+  webCallCountByKey.set(key, next);
   return next;
 }
 
@@ -100,11 +119,12 @@ export async function research(
   const client = deps.client ?? getAnthropicClient();
   const log = deps.log ?? ((msg, err) => console.error(msg, err));
 
-  // Plan-mode rate limit. In other modes web is disabled; we still
-  // count nothing so the limit tracks real web calls only.
+  // Mode-aware rate limit. Only counts when web is actually enabled.
+  // Each mode keeps its own counter (see WEB_CALLS_PER_SESSION_MAX_BY_MODE).
   if (input.webEnabled) {
-    const used = incrementWebCallCount(input.sessionId);
-    if (used > WEB_CALLS_PER_SESSION_MAX) {
+    const cap = WEB_CALLS_PER_SESSION_MAX_BY_MODE[input.mode] ?? 0;
+    const used = incrementWebCallCount(input.mode, input.sessionId);
+    if (used > cap) {
       // Not an error — the calm one-liner tells the user we hit the
       // cap. Consolidator weaves it in as the finding.
       return {

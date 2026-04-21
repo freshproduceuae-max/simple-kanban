@@ -33,6 +33,13 @@ export type CriticInput = {
   draft: string;
   /** Optional threshold override. Defaults to env / 'medium'. */
   threshold?: RiskLevel;
+  /**
+   * When true, Critic always dispatches regardless of risk heuristic.
+   * Plan mode sets this per PRD §6.2 ("Critic always runs on Plan
+   * drafts"). Chat and Advise leave it unset — they rely on the
+   * risk-threshold fast path.
+   */
+  force?: boolean;
 };
 
 export type CriticResult = {
@@ -96,8 +103,9 @@ export async function critique(
   const threshold = input.threshold ?? readConfiguredThreshold();
   const risk = classifyDraftRisk(input.draft);
 
-  // Below threshold: fast path. No Anthropic call, no log row.
-  if (!shouldDispatchCritic(risk, threshold)) {
+  // Below threshold: fast path. No Anthropic call, no log row. `force`
+  // bypasses this skip — Plan mode dispatches unconditionally.
+  if (!input.force && !shouldDispatchCritic(risk, threshold)) {
     return { ran: false, risk, review: null, tokensIn: 0, tokensOut: 0 };
   }
 
