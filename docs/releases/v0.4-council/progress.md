@@ -36,8 +36,8 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F15 | Chat mode | #30 | ☑ |
 | F16 | Plan mode | #30 | ☑ |
 | F17 | Advise mode | #30 | ☑ |
-| F18 | Session turn logging + cold-path summaries | — | ☐ |
-| F19 | Read-only Session history list view | — | ☐ |
+| F18 | Session turn logging + cold-path summaries | #31 | ☑ |
+| F19 | Read-only Session history list view | #31 | ☑ |
 | F20 | Error-email pipeline (Resend) | — | ☐ |
 | F21 | Token + latency instrumentation | — | ☐ |
 | F22 | Token-budget enforcement (session + daily 500k cap) | — | ☐ |
@@ -93,6 +93,14 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-22 — F18/F19 opened as batch PR #31 (persistence spine, B1 of remaining 5 alpha)
+
+- Branch `feat/v0.4-F18-F19-persistence-spine` carries two sequential commits. CD picked split B1 (F18+F19) / B2 (F20+F21+F22) over one-big-PR after an LOC/surface-area analysis mirroring the Batch A precedent.
+- **F18 (`9cf445e`) — session persistence:** new `SupabaseSessionRepository` (startSession/endSession/appendTurn/listSessionsForUser/listTurns) and `SupabaseCouncilMemoryRepository` (writeSummary + listSummariesForUser; writeRecall / listRecallsForTurn stay F24 stubs). `getSessionRepository()` and `getCouncilMemoryRepository()` factories added to `lib/persistence/server.ts`. The F15-F17 in-memory `session.ts` bridge is replaced by an async DB-backed `resolveSessionId` that keeps the same 30-min idle-window cache shape but now calls `startSession` on miss and fire-and-forget finalizes the prior session (endSession + `kind:'session-end'` summary) when the window closes. Client-provided ids must parse as UUID to be trusted — garbage fall through to a real `startSession`. Chat / Plan / Advise / Greeting routes all use the real repos. Plan's F17 `session_id: null` bridge on proposal creation is retired — `council_proposals.session_id` now FKs to the real session row.
+- **F19 (`788df6a`) — read-only /history list view:** Server Component at `app/history/page.tsx`, PRD §10.3 columns (timestamp, mode, title, duration, outcome, token cost). Title derived from first user turn via `listTurns`; duration / outcome / cost aggregated per session. Pure helpers in `lib/council/history/derive.ts`. Simple `?cursor=<started_at>` pagination at 25 rows/page; search and filter deferred to F28. Unauthenticated → redirect to /sign-in.
+- Totals: +34 tests (F18 = 13 new across SupabaseSessionRepository, SupabaseCouncilMemoryRepository, resolveSessionId; F19 = 21 across derive + page). Full suite 416/421 green (5 skipped; pre-existing PGlite hook-timeout flake unchanged). `tsc --noEmit`, `eslint`, `next build` all clean.
+- Out-of-scope / deferred to B2 = PR #32: F20 Resend error pipeline, F21 Anthropic-call metrics writes, F22 session+daily token-budget enforcement.
 
 ### 2026-04-21 — F15/F16/F17 merged (#30 `eed48a2`) — three Council modes GREEN
 

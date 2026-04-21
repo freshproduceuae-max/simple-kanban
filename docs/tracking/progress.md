@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01–F08 merged (#20–#27). F09/F10/F11 Council agent trio merged (#28 `878e276`). F12/F13/F14 Write Gate + proposal card + greeting merged (#29 `7ad1e2b`). F15/F16/F17 three Council modes merged (#30 `eed48a2`). Next up: Batch B = F18–F22 (session lifecycle + summaries, read-only history list, Resend error pipeline, token/latency instrumentation, budget enforcement).
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01–F08 merged (#20–#27). F09/F10/F11 Council agent trio merged (#28 `878e276`). F12/F13/F14 Write Gate + proposal card + greeting merged (#29 `7ad1e2b`). F15/F16/F17 three Council modes merged (#30 `eed48a2`). F18/F19 persistence spine + /history view opened as PR #31 on `feat/v0.4-F18-F19-persistence-spine` (commits `9cf445e`, `788df6a`). Next up: B2 = F20/F21/F22 (Resend error pipeline, Anthropic instrumentation, token-budget enforcement).
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,10 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-22 — F18+F19 opened as batch PR #31 (persistence spine + /history)
+
+- Two sequential commits on `feat/v0.4-F18-F19-persistence-spine`: F18 `9cf445e` (persist sessions/turns/summaries; retire in-memory bridge; UUID-guarded resolver; 30-min idle rollover with fire-and-forget finalize), F19 `788df6a` (read-only /history Server Component with pure derive helpers + cursor pagination). Full-suite 416/421 green (5 skipped, 1 pre-existing PGlite flake), typecheck 0, lint clean, build clean. Details in `docs/releases/v0.4-council/progress.md`.
 
 ### 2026-04-21 — F12+F13+F14 opened as batch PR #29 (Write Gate + proposal card + greeting)
 
