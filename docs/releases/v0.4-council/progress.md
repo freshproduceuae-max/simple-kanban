@@ -33,9 +33,9 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F12 | Council Write Gate server contract | #29 | ☑ |
 | F13 | Proposal card UI + tap-to-approve flow | #29 | ☑ |
 | F14 | Morning greeting flow (memory-only, ≤ 200 chars) | #29 | ☑ |
-| F15 | Chat mode | — | ☐ |
-| F16 | Plan mode | — | ☐ |
-| F17 | Advise mode | — | ☐ |
+| F15 | Chat mode | #30 | ☑ |
+| F16 | Plan mode | #30 | ☑ |
+| F17 | Advise mode | #30 | ☑ |
 | F18 | Session turn logging + cold-path summaries | — | ☐ |
 | F19 | Read-only Session history list view | — | ☐ |
 | F20 | Error-email pipeline (Resend) | — | ☐ |
@@ -93,6 +93,15 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-21 — F15/F16/F17 opened as batch PR #30 (three Council modes, Batch A of remaining 8 alpha)
+
+- Branch `feat/v0.4-F15-F16-F17-council-modes` carries three sequential commits following the F12+F13+F14 template. CD picks applied: (1) three distinct routes, (2) JSON trailer frame for structured data, (3) Advise → Plan handoff via client re-POST, (4) Consolidator-requested chips (not always rendered).
+- **F15 (chat):** shared orchestration seams first — `lib/council/server/dispatch.ts` composes Researcher → Consolidator → Critic for all three modes, `lib/council/server/stream-response.ts` wraps the streaming Response (with optional JSON trailer + `x-council-has-proposals` header), `lib/council/server/session.ts` is an in-memory 30-min-idle session resolver with an explicit `F18 replaces this` marker, and `lib/council/shared/web-request.ts` detects user web-opt-in phrases. Researcher rate-limit key moved from `sessionId` to `${mode}:${sessionId}` so Plan/Chat don't cross-subsidize. Critic gained a `force: true` flag that Plan uses. ShelfInput + TurnList rebuilt as scoped F07 retrofit under `components/council-shelf/`.
+- **F16 (plan):** Consolidator's Plan prompt now requires a trailing ` ```json-plan ` fenced JSON block carrying `{tasks: [...], chips: [...]}`. `lib/council/server/plan-extract.ts` parses the fence leniently (no throw on missing/malformed). The route creates one `kind:'task'` proposal row per drafted title via `getProposalRepository()` and emits `{proposals: [...ids], chips: [...]}` as the trailer. Adds `components/council-shelf/ChipInput.tsx` (compact → expand → submit → collapse, design-system §8.5).
+- **F17 (advise):** read-only; never creates proposals. Board snapshot via `getTaskRepository().listForUser(userId)` projected to `{id, title, board_column, overdue_at}` only. Web off by default; flips on only when the client echoes `confirmWebFetch: true` (two-step confirm). Critic threshold-gated (not forced). When the user says "draft this" / "plan this" (see `lib/council/shared/handoff-request.ts`), route emits `{handoff: 'plan'}` trailer and the client re-POSTs to `/api/council/plan`.
+- Totals: +60 tests across the three features (24 F16, 15 F17, 21 F15). Full suite 359/359 green. `tsc --noEmit`, `eslint`, `next build` all clean.
+- Out-of-scope / deferred to Batch B: F18 session turn logging + summaries, F19 read-only history list, F20 Resend error pipeline, F21 token/latency instrumentation, F22 budget enforcement. Those ship as PR #31 once PR #30 merges.
 
 ### 2026-04-21 — F12/F13/F14 opened as batch PR #29 (Write Gate + proposal card + greeting)
 
