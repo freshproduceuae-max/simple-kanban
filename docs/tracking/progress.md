@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01–F08 merged (#20–#27). F09/F10/F11 Council agent trio merged (#28 `878e276`). F12/F13/F14 Write Gate + proposal card + greeting merged (#29 `7ad1e2b`). F15/F16/F17 three Council modes batched on `feat/v0.4-F15-F16-F17-council-modes` (PR #30 pending Codex review) — Batch A of the remaining 8 alpha features; F18–F22 follow as Batch B.
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01–F08 merged (#20–#27). F09/F10/F11 Council agent trio merged (#28 `878e276`). F12/F13/F14 Write Gate + proposal card + greeting merged (#29 `7ad1e2b`). F15/F16/F17 three Council modes merged (#30 `eed48a2`). Next up: Batch B = F18–F22 (session lifecycle + summaries, read-only history list, Resend error pipeline, token/latency instrumentation, budget enforcement).
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.

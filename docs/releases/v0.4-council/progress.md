@@ -94,6 +94,11 @@ Kept short. Move to PRD §17 if an item changes product shape.
 
 Newest on top. One line per working beat.
 
+### 2026-04-21 — F15/F16/F17 merged (#30 `eed48a2`) — three Council modes GREEN
+
+- Codex returned one round of P1×2 + P2 findings — FK session bridge, Advise two-step web, honest trailer header contract. Fixes landed as `e62120f` on the same branch. Codex re-review clean. CD approved merge.
+- Remaining alpha work: Batch B = F18–F22 (session lifecycle + summaries, read-only history list, Resend error pipeline, token/latency instrumentation, budget enforcement). `feat/v0.4-F15-F16-F17-council-modes` branch deleted.
+
 ### 2026-04-21 — F15/F16/F17 opened as batch PR #30 (three Council modes, Batch A of remaining 8 alpha)
 
 - Branch `feat/v0.4-F15-F16-F17-council-modes` carries three sequential commits following the F12+F13+F14 template. CD picks applied: (1) three distinct routes, (2) JSON trailer frame for structured data, (3) Advise → Plan handoff via client re-POST, (4) Consolidator-requested chips (not always rendered).
