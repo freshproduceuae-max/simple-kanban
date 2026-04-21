@@ -88,6 +88,35 @@ export class SupabaseProposalRepository implements ProposalRepository {
     return data as CouncilProposalRow;
   }
 
+  /**
+   * Compensating un-approve for the approve route's rollback path. Only
+   * flips rows that are still `approved` (so it can't silently resurrect
+   * rejected or expired rows). Clears `approved_at` and
+   * `approval_token_hash` so the row is retry-safe. Returns the row on
+   * success, or null if no row matched (already reverted, or concurrent
+   * mutation). Caller treats null as a no-op worth logging.
+   */
+  async revertToPending(input: {
+    id: string;
+    userId: string;
+  }): Promise<CouncilProposalRow | null> {
+    const { data, error } = await this.client
+      .from('council_proposals')
+      .update({
+        status: 'pending',
+        approved_at: null,
+        approval_token_hash: null,
+      })
+      .eq('id', input.id)
+      .eq('user_id', input.userId)
+      .eq('status', 'approved')
+      .select('*')
+      .maybeSingle();
+    if (error)
+      throw new Error(`ProposalRepository.revertToPending: ${error.message}`);
+    return (data as CouncilProposalRow | null) ?? null;
+  }
+
   async findById(input: {
     id: string;
     userId: string;

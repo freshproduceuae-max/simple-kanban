@@ -6,6 +6,13 @@ export interface ProposalRepository {
     status?: ProposalStatus;
   }): Promise<CouncilProposalRow>;
   markApproved(input: { id: string; userId: string; approvalTokenHash: string }): Promise<CouncilProposalRow>;
+  /**
+   * Compensating un-approve. Used by the approve route when the task
+   * side-effect fails after `markApproved` succeeded, so the row can
+   * return to `pending` and the user can retry. Refuses rows that are
+   * not currently `approved` (so it can't resurrect a rejected row).
+   */
+  revertToPending(input: { id: string; userId: string }): Promise<CouncilProposalRow | null>;
   findById(input: { id: string; userId: string }): Promise<CouncilProposalRow | null>;
   expireStale(now: Date): Promise<number>;
 }
@@ -15,6 +22,9 @@ export class ProposalRepositoryNotImplemented implements ProposalRepository {
     throw new Error('ProposalRepository: implementation lands with F12');
   }
   async markApproved(_input: { id: string; userId: string; approvalTokenHash: string }): Promise<CouncilProposalRow> {
+    throw new Error('ProposalRepository: implementation lands with F12');
+  }
+  async revertToPending(_input: { id: string; userId: string }): Promise<CouncilProposalRow | null> {
     throw new Error('ProposalRepository: implementation lands with F12');
   }
   async findById(_input: { id: string; userId: string }): Promise<CouncilProposalRow | null> {

@@ -231,9 +231,47 @@ export async function composeFullGreeting(
   let tokensIn = 0;
   let tokensOut = 0;
 
+  // Streaming cap state. We enforce the F14 contract (≤ GREETING_MAX_CHARS
+  // AND ≤ GREETING_MAX_SENTENCES) on every yielded chunk so the client
+  // can never render a greeting that exceeds the cap. Fix for Codex P1
+  // on PR #29: previously only `done.text` was capped, so the streamed
+  // bytes could overrun the contract.
+  let emittedLen = 0;
+  let sentenceCount = 0;
+  let stopped = false;
   const emit = (text: string): string => {
     chunks.push(text);
     return text;
+  };
+  const applyCap = (incoming: string): string | null => {
+    if (stopped || incoming.length === 0) return null;
+    let out = '';
+    for (const ch of incoming) {
+      if (emittedLen + out.length >= GREETING_MAX_CHARS - 1) {
+        // Reserve one char for the trailing ellipsis so the emitted
+        // total never exceeds GREETING_MAX_CHARS. Back off to the last
+        // word boundary within `out` so we don't leave a severed token;
+        // if this chunk has no space, truncate at its start — less
+        // aesthetic but contract-safe.
+        const room = Math.max(0, GREETING_MAX_CHARS - emittedLen - 1);
+        const trimmed = out.slice(0, room);
+        const lastSpace = trimmed.lastIndexOf(' ');
+        out = (lastSpace > 0 ? trimmed.slice(0, lastSpace) : trimmed).trimEnd();
+        out = out + '…';
+        stopped = true;
+        break;
+      }
+      out += ch;
+      if (ch === '.' || ch === '!' || ch === '?') {
+        sentenceCount++;
+        if (sentenceCount >= GREETING_MAX_SENTENCES) {
+          stopped = true;
+          break;
+        }
+      }
+    }
+    emittedLen += out.length;
+    return out.length > 0 ? out : null;
   };
 
   const passthrough: AsyncIterable<string> = {
@@ -253,7 +291,10 @@ export async function composeFullGreeting(
             event.delta?.type === 'text_delta' &&
             typeof event.delta.text === 'string'
           ) {
-            yield emit(event.delta.text);
+            const capped = applyCap(event.delta.text);
+            if (capped !== null) yield emit(capped);
+            // If the cap has been reached, keep consuming events so we
+            // still collect token totals, but don't yield further text.
           }
           if (
             event.type === 'message_delta' &&
@@ -265,8 +306,8 @@ export async function composeFullGreeting(
         }
       } catch (err) {
         log('greeting: mid-stream error', err);
-        yield emit(' ');
-        yield emit(GREETING_FAIL_SENTENCE);
+        const fallback = applyCap(' ' + GREETING_FAIL_SENTENCE);
+        if (fallback !== null) yield emit(fallback);
       }
     },
   };

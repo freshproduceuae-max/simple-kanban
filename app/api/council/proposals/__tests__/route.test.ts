@@ -10,6 +10,7 @@ const getAuthedUserId = vi.fn();
 const proposalCreate = vi.fn();
 const proposalFindById = vi.fn();
 const proposalMarkApproved = vi.fn();
+const proposalRevertToPending = vi.fn();
 const taskCreate = vi.fn();
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -21,6 +22,7 @@ vi.mock('@/lib/persistence/server', () => ({
     create: (...a: unknown[]) => proposalCreate(...a),
     findById: (...a: unknown[]) => proposalFindById(...a),
     markApproved: (...a: unknown[]) => proposalMarkApproved(...a),
+    revertToPending: (...a: unknown[]) => proposalRevertToPending(...a),
     expireStale: vi.fn(),
   }),
   getTaskRepository: () => ({
@@ -105,6 +107,7 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     getAuthedUserId.mockReset();
     proposalFindById.mockReset();
     proposalMarkApproved.mockReset();
+    proposalRevertToPending.mockReset();
     taskCreate.mockReset();
     getAuthedUserId.mockResolvedValue('u1');
     proposalMarkApproved.mockResolvedValue({ id: 'p1' });
@@ -232,6 +235,56 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(422);
     expect(taskCreate).not.toHaveBeenCalled();
+    // Atomicity: a malformed payload must NOT consume the pending row.
+    // Validation runs before markApproved, so a retry with a repaired
+    // payload (rare; more realistic is a manual DB fix) is still possible.
+    expect(proposalMarkApproved).not.toHaveBeenCalled();
+  });
+
+  it('reverts the proposal to pending when the task write fails after approval', async () => {
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 'Write plan' },
+      status: 'pending',
+      created_at: '2026-04-21T00:00:00Z',
+      expires_at: fresh,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    taskCreate.mockRejectedValueOnce(new Error('db blip'));
+    proposalRevertToPending.mockResolvedValueOnce({ id: 'p1', status: 'pending' });
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(500);
+    expect(proposalMarkApproved).toHaveBeenCalled();
+    expect(taskCreate).toHaveBeenCalled();
+    expect(proposalRevertToPending).toHaveBeenCalledWith({
+      id: 'p1',
+      userId: 'u1',
+    });
+  });
+
+  it('still returns 500 when the compensating revert also fails (no throw)', async () => {
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 'Write plan' },
+      status: 'pending',
+      created_at: '2026-04-21T00:00:00Z',
+      expires_at: fresh,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    taskCreate.mockRejectedValueOnce(new Error('task-db-error'));
+    proposalRevertToPending.mockRejectedValueOnce(new Error('revert-db-error'));
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('task-db-error');
   });
 
   it('kind=memo approves without side-effect (no task write)', async () => {

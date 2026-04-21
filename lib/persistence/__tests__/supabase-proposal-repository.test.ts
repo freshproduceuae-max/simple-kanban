@@ -172,6 +172,25 @@ describe('SupabaseProposalRepository (F12)', () => {
     );
   });
 
+  it('revertToPending un-approves a row and clears approved metadata', async () => {
+    const repo = new SupabaseProposalRepository(client as never);
+    await repo.revertToPending({ id: 'p1', userId: 'u1' });
+    const upd = builder.update.mock.calls[0][0] as {
+      status: string;
+      approved_at: string | null;
+      approval_token_hash: string | null;
+    };
+    expect(upd.status).toBe('pending');
+    expect(upd.approved_at).toBeNull();
+    expect(upd.approval_token_hash).toBeNull();
+    const eqCalls = builder.eq.mock.calls;
+    expect(eqCalls).toContainEqual(['id', 'p1']);
+    expect(eqCalls).toContainEqual(['user_id', 'u1']);
+    // Refuses to transition rows that are not currently 'approved' —
+    // keeps revert from resurrecting rejected/expired rows.
+    expect(eqCalls).toContainEqual(['status', 'approved']);
+  });
+
   it('surfaces Supabase errors as thrown Errors', async () => {
     builder = chain<CouncilProposalRow | null>({ data: null, error: { message: 'boom' } });
     fromSpy = vi.fn(() => builder);

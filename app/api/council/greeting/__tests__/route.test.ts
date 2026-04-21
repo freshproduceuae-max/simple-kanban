@@ -126,4 +126,5 @@ describe('POST /api/council/greeting (F14)', () => {
     const res = await greetingRoute(req({ tz: 'UTC' }));
     expect(res.status).toBe(200);
   });
+
 });

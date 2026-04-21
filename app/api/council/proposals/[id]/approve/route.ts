@@ -83,27 +83,19 @@ export async function POST(_request: Request, { params }: Ctx) {
     );
   }
 
-  // Mint + hash + persist in the same step. markApproved refuses to
-  // transition any row that is not still `pending`, so a concurrent
-  // approve of the same proposal loses cleanly (one of the two calls
-  // surfaces an error rather than silently double-creating a task).
-  const approvalToken = mintApprovalToken();
-  const approvalTokenHash = hashApprovalToken(approvalToken);
-
-  try {
-    await proposalRepo.markApproved({
-      id: proposalId,
-      userId,
-      approvalTokenHash,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'approve-failed' },
-      { status: 500 },
-    );
-  }
-
-  // Execute the side-effect for task proposals.
+  // Pre-flight payload validation — MUST run before any state change so
+  // a malformed payload returns 422 without consuming the pending row.
+  // (Fix for Codex P1 on PR #29: previously markApproved flipped status
+  // before validation, so a 422 left the proposal permanently consumed
+  // with no task created.)
+  let taskPayload:
+    | {
+        title: string;
+        description: string | null;
+        board_column: BoardColumn;
+        position: number;
+      }
+    | null = null;
   if (row.kind === 'task') {
     const payload = row.payload as {
       title?: string;
@@ -121,14 +113,45 @@ export async function POST(_request: Request, { params }: Ctx) {
         { status: 422 },
       );
     }
+    taskPayload = {
+      title: payload.title.trim(),
+      description: (payload.description ?? '') || null,
+      board_column: payload.board_column ?? 'todo',
+      position: payload.position ?? Date.now(),
+    };
+  }
+
+  // Mint + hash + persist. markApproved refuses to transition any row
+  // that is not still `pending`, so a concurrent approve of the same
+  // proposal loses cleanly (one of the two calls surfaces an error
+  // rather than silently double-creating a task).
+  const approvalToken = mintApprovalToken();
+  const approvalTokenHash = hashApprovalToken(approvalToken);
+
+  try {
+    await proposalRepo.markApproved({
+      id: proposalId,
+      userId,
+      approvalTokenHash,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'approve-failed' },
+      { status: 500 },
+    );
+  }
+
+  // Execute the side-effect for task proposals. On failure, compensate
+  // by reverting the proposal back to `pending` so the user can retry.
+  // If the revert itself fails we log and return the original error —
+  // the operator can manually repair rare split-brain states, but the
+  // common DB-blip case is cleanly retry-safe.
+  if (taskPayload) {
     try {
       const taskRepo = getTaskRepository();
       const created = await taskRepo.create({
         userId,
-        title: payload.title.trim(),
-        description: (payload.description ?? '') || null,
-        board_column: payload.board_column ?? 'todo',
-        position: payload.position ?? Date.now(),
+        ...taskPayload,
         approvalContext: {
           proposalId,
           approvalToken,
@@ -143,6 +166,14 @@ export async function POST(_request: Request, { params }: Ctx) {
         { status: 200 },
       );
     } catch (err) {
+      try {
+        await proposalRepo.revertToPending({ id: proposalId, userId });
+      } catch (revertErr) {
+        console.error(
+          `approve-route: revertToPending failed for proposal ${proposalId}`,
+          revertErr,
+        );
+      }
       return NextResponse.json(
         { error: err instanceof Error ? err.message : 'task-create-failed' },
         { status: 500 },

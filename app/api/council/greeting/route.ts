@@ -8,6 +8,7 @@ import {
   SHORT_REENTRY_LINE,
 } from '@/lib/council/greeting';
 import { lastSessionStartedAt } from '@/lib/council/greeting/last-session';
+import { localMidnightBoundaryISO } from '@/lib/council/greeting/local-midnight';
 import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council-memory-repository';
 
 /**
@@ -35,43 +36,6 @@ import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council
  */
 
 type GreetingRequest = { tz?: string };
-
-function localMidnightBoundaryISO(tz: string, now: Date = new Date()): string {
-  // Compute the UTC instant corresponding to "today 00:00 in tz".
-  // Approach: (1) figure out today's Y-M-D in tz, (2) probe what tz
-  // reports as the clock for the UTC instant Y-M-D 00:00Z, (3) shift
-  // by the probed offset. Works for any tz without a date library.
-  try {
-    const dayFmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const ymd = dayFmt.format(now); // "YYYY-MM-DD"
-    const probeUtc = new Date(`${ymd}T00:00:00Z`).getTime();
-
-    const clockFmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-    const clockParts = clockFmt.formatToParts(new Date(probeUtc));
-    const g = (t: string) =>
-      Number(clockParts.find((p) => p.type === t)?.value ?? '0');
-    const hh = g('hour') % 24; // en-CA returns 24 at midnight on some runtimes
-    const mm = g('minute');
-    const ss = g('second');
-    const clockMsInTz = (hh * 60 * 60 + mm * 60 + ss) * 1000;
-    // If tz clock at probeUtc reads 04:00, then tz is UTC+4. Today's
-    // local midnight in tz corresponds to probeUtc - 4h UTC.
-    return new Date(probeUtc - clockMsInTz).toISOString();
-  } catch {
-    return new Date(now.toISOString().slice(0, 10) + 'T00:00:00Z').toISOString();
-  }
-}
 
 export async function POST(request: Request) {
   let userId: string;

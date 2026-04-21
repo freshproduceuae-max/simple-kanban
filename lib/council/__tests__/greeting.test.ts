@@ -143,8 +143,8 @@ describe('composeFullGreeting (F14)', () => {
     daysSinceLastSession: 1,
   };
 
-  it('streams chunks and caps the final text to <= 200 chars', async () => {
-    const chunks = ['Good morning. ', 'Three things still to pick up. ', 'Start with Ship v0.4.'];
+  it('streams chunks under the cap verbatim and exposes token totals', async () => {
+    const chunks = ['Good morning. ', 'Three things still to pick up.'];
     const client = makeStreamClient(chunks);
     const { stream, done } = await composeFullGreeting(
       { userId: 'u1', signals },
@@ -157,6 +157,37 @@ describe('composeFullGreeting (F14)', () => {
     expect(result.text.length).toBeLessThanOrEqual(GREETING_MAX_CHARS);
     expect(result.tokensIn).toBe(10);
     expect(result.tokensOut).toBe(5);
+  });
+
+  it('caps the STREAMED output at 2 sentences — extra sentences never reach the client', async () => {
+    const chunks = ['Good morning. ', 'Three things still to pick up. ', 'Start with Ship v0.4.'];
+    const client = makeStreamClient(chunks);
+    const { stream, done } = await composeFullGreeting(
+      { userId: 'u1', signals },
+      { client, memoryRepo: memoryRepo() },
+    );
+    const received: string[] = [];
+    for await (const c of stream) received.push(c);
+    const joined = received.join('');
+    expect(joined).not.toContain('Ship v0.4');
+    // Only two sentence terminators should have reached the client.
+    expect(joined.match(/[.!?]/g)?.length ?? 0).toBeLessThanOrEqual(2);
+    const out = await done;
+    expect(out.text.length).toBeLessThanOrEqual(GREETING_MAX_CHARS);
+  });
+
+  it('caps the STREAMED output at 200 chars with a graceful ellipsis', async () => {
+    const long = 'a'.repeat(250);
+    const client = makeStreamClient([long]);
+    const { stream } = await composeFullGreeting(
+      { userId: 'u1', signals },
+      { client, memoryRepo: memoryRepo() },
+    );
+    const received: string[] = [];
+    for await (const c of stream) received.push(c);
+    const joined = received.join('');
+    expect(joined.length).toBeLessThanOrEqual(GREETING_MAX_CHARS);
+    expect(joined.endsWith('…')).toBe(true);
   });
 
   it('never attaches a web tool on the greeting call (memory-only hot path)', async () => {
