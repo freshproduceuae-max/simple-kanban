@@ -225,7 +225,7 @@
         "On tap: scale(0.98) + moss-tinted flash per §9.3, then post approval, then animate into target column",
         "On expiry: archive visually with a fade + explanation line"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F14",
