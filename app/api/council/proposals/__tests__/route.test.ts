@@ -12,6 +12,7 @@ const proposalFindById = vi.fn();
 const proposalMarkApproved = vi.fn();
 const proposalRevertToPending = vi.fn();
 const proposalExpireStaleForUser = vi.fn();
+const proposalMarkExpired = vi.fn();
 const taskCreate = vi.fn();
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -26,6 +27,7 @@ vi.mock('@/lib/persistence/server', () => ({
     revertToPending: (...a: unknown[]) => proposalRevertToPending(...a),
     expireStale: vi.fn(),
     expireStaleForUser: (...a: unknown[]) => proposalExpireStaleForUser(...a),
+    markExpired: (...a: unknown[]) => proposalMarkExpired(...a),
   }),
   getTaskRepository: () => ({
     create: (...a: unknown[]) => taskCreate(...a),
@@ -112,6 +114,8 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     proposalRevertToPending.mockReset();
     proposalExpireStaleForUser.mockReset();
     proposalExpireStaleForUser.mockResolvedValue(0);
+    proposalMarkExpired.mockReset();
+    proposalMarkExpired.mockResolvedValue({ id: 'p1', status: 'expired' });
     taskCreate.mockReset();
     getAuthedUserId.mockResolvedValue('u1');
     proposalMarkApproved.mockResolvedValue({ id: 'p1' });
@@ -191,10 +195,11 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     expect(res.status).toBe(200);
   });
 
-  it('returns 410 AND re-archives when a pending row is somehow still pending past TTL', async () => {
-    // Simulate sweep failure: row comes back still pending despite
-    // past expires_at. Route must retry the sweep so the row is
-    // actually flipped.
+  it('returns 410 ONLY after markExpired confirms the specific row was archived', async () => {
+    // Sweep missed the row (could be a sweep error above, or a TTL-
+    // at-the-boundary race). findById still sees it pending with a
+    // past expires_at. The route must confirm the archive on this
+    // specific row before answering 410.
     proposalFindById.mockResolvedValue({
       id: 'p1',
       user_id: 'u1',
@@ -209,9 +214,54 @@ describe('POST /api/council/proposals/:id/approve (F12 approve)', () => {
     });
     const res = await approveProposal(req(), { params: { id: 'p1' } });
     expect(res.status).toBe(410);
-    // Called at least twice: the up-front sweep + the retry after the
-    // findById read confirmed the row is still pending.
-    expect(proposalExpireStaleForUser).toHaveBeenCalledTimes(2);
+    expect(proposalMarkExpired).toHaveBeenCalledWith({
+      id: 'p1',
+      userId: 'u1',
+    });
+  });
+
+  it('treats a null markExpired result as an already-archived row (still 410)', async () => {
+    // Concurrent archive (another sweep, admin tool) flipped the row
+    // between findById and markExpired. markExpired returns null. The
+    // archive contract is satisfied — row is no longer pending in DB.
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 't' },
+      status: 'pending',
+      created_at: '2026-04-20T00:00:00Z',
+      expires_at: stale,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    proposalMarkExpired.mockResolvedValueOnce(null);
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(410);
+  });
+
+  it('fails loud with 500 when markExpired throws — never claims archive without proof', async () => {
+    // If we cannot confirm the row was transitioned off pending, we
+    // MUST NOT answer 410. A 500 tells the client to retry; the next
+    // call's top-of-route sweep almost certainly succeeds.
+    proposalFindById.mockResolvedValue({
+      id: 'p1',
+      user_id: 'u1',
+      session_id: null,
+      kind: 'task',
+      payload: { title: 't' },
+      status: 'pending',
+      created_at: '2026-04-20T00:00:00Z',
+      expires_at: stale,
+      approved_at: null,
+      approval_token_hash: null,
+    });
+    proposalMarkExpired.mockRejectedValueOnce(new Error('db down'));
+    const res = await approveProposal(req(), { params: { id: 'p1' } });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/archive-failed/);
   });
 
   it('returns 410 when proposal is past its TTL (expired)', async () => {

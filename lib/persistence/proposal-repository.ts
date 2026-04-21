@@ -22,6 +22,16 @@ export interface ProposalRepository {
    * when a lookup discovers the current row is past-TTL.
    */
   expireStaleForUser(input: { userId: string; now: Date }): Promise<number>;
+  /**
+   * Targeted single-row archive. Flips the referenced pending row to
+   * `expired`. Refuses rows that are not `pending` (so it can't
+   * resurrect approved/rejected rows). Returns the updated row on
+   * success or null if no row transitioned (already archived or
+   * concurrently mutated). The approve route uses this to confirm a
+   * specific row's archive BEFORE returning 410, so we never claim
+   * archive on a row that is still `pending` in storage.
+   */
+  markExpired(input: { id: string; userId: string }): Promise<CouncilProposalRow | null>;
 }
 
 export class ProposalRepositoryNotImplemented implements ProposalRepository {
@@ -41,6 +51,9 @@ export class ProposalRepositoryNotImplemented implements ProposalRepository {
     throw new Error('ProposalRepository: implementation lands with F12');
   }
   async expireStaleForUser(_input: { userId: string; now: Date }): Promise<number> {
+    throw new Error('ProposalRepository: implementation lands with F12');
+  }
+  async markExpired(_input: { id: string; userId: string }): Promise<CouncilProposalRow | null> {
     throw new Error('ProposalRepository: implementation lands with F12');
   }
 }

@@ -146,6 +146,23 @@ export class SupabaseProposalRepository implements ProposalRepository {
     return (data ?? []).length;
   }
 
+  async markExpired(input: {
+    id: string;
+    userId: string;
+  }): Promise<CouncilProposalRow | null> {
+    const { data, error } = await this.client
+      .from('council_proposals')
+      .update({ status: 'expired' })
+      .eq('id', input.id)
+      .eq('user_id', input.userId)
+      .eq('status', 'pending')
+      .select('*')
+      .maybeSingle();
+    if (error)
+      throw new Error(`ProposalRepository.markExpired: ${error.message}`);
+    return (data as CouncilProposalRow | null) ?? null;
+  }
+
   async expireStaleForUser(input: { userId: string; now: Date }): Promise<number> {
     const { data, error } = await this.client
       .from('council_proposals')

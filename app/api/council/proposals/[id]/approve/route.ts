@@ -86,22 +86,39 @@ export async function POST(_request: Request, { params }: Ctx) {
   }
 
   // If the sweep above caught this row, its status is now 'expired'
-  // and the `row.status !== 'pending'` branch below returns 410.
-  // If a sweep failure or TTL-at-the-boundary race left it still
-  // pending despite a past expires_at, retry the archive once so the
-  // row is actually flipped before we respond 410 — the PRD's
-  // "automatic archive" rule has to hold even on the unlucky path.
+  // and the `row.status !== 'pending'` branch below returns 410. If
+  // the sweep missed the row (failure, or TTL-at-the-boundary race),
+  // we MUST confirm the archive on this specific row before returning
+  // 410 — the automatic-archive rule cannot be claimed-but-not-done.
+  // Codex P1 on PR #29: previously the route could answer 410 while
+  // the row was still `pending` in storage, leaving it to count
+  // against the 10-pending cap.
   if (
     row.status === 'pending' &&
     new Date(row.expires_at).getTime() < Date.now()
   ) {
     try {
-      await proposalRepo.expireStaleForUser({ userId, now: new Date() });
-    } catch {
-      // First-attempt failure already logged; a second miss is
-      // recoverable on any subsequent request.
+      // markExpired returns either the newly-expired row, OR null if
+      // the row was concurrently moved off `pending` by someone else
+      // (approve race, admin tool, repeated sweep). Either outcome
+      // satisfies the archive contract: the row is no longer pending
+      // in storage. Only a THROW means we cannot confirm archive.
+      await proposalRepo.markExpired({ id: proposalId, userId });
+      return NextResponse.json({ error: 'expired' }, { status: 410 });
+    } catch (err) {
+      // Could not confirm the archive. Fail loud rather than lie —
+      // the client will retry, and the next call's top-of-route sweep
+      // will almost certainly succeed.
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? `archive-failed: ${err.message}`
+              : 'archive-failed',
+        },
+        { status: 500 },
+      );
     }
-    return NextResponse.json({ error: 'expired' }, { status: 410 });
   }
 
   if (row.status !== 'pending') {

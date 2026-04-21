@@ -177,6 +177,25 @@ describe('SupabaseProposalRepository (F12)', () => {
     );
   });
 
+  it('markExpired archives a single pending row with user_id + status guards', async () => {
+    const repo = new SupabaseProposalRepository(client as never);
+    await repo.markExpired({ id: 'p1', userId: 'u1' });
+    expect(builder.update).toHaveBeenCalledWith({ status: 'expired' });
+    const eqCalls = builder.eq.mock.calls;
+    expect(eqCalls).toContainEqual(['id', 'p1']);
+    expect(eqCalls).toContainEqual(['user_id', 'u1']);
+    // Refuses to flip approved/rejected rows.
+    expect(eqCalls).toContainEqual(['status', 'pending']);
+  });
+
+  it('markExpired returns null when no row matched (already archived)', async () => {
+    builder = chain<CouncilProposalRow | null>({ data: null, error: null });
+    fromSpy = vi.fn(() => builder);
+    const repo = new SupabaseProposalRepository({ from: fromSpy } as never);
+    const out = await repo.markExpired({ id: 'p1', userId: 'u1' });
+    expect(out).toBeNull();
+  });
+
   it('expireStaleForUser scopes the archive sweep by user_id + status + past TTL', async () => {
     builder = chain<Array<{ id: string }>>({
       data: [{ id: 'a' }, { id: 'b' }],
