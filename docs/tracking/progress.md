@@ -9,7 +9,7 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Current state
 
 - **v0.1.0** — shipped. On `main`. Tagged historically.
-- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01 merged (#20 `e1025d2`), F02 merged (#21 `e1ae080`), F03 merged (#22 `98c0a41`), F04 merged (#23 `74bee1a`), F05 merged (#24 `359ea3a`), F06 merged (#25 `4801ef1`), F07 merged (#26 `bc8a807`), F08 merged (#27 `c7ee63b`). F09/F10/F11 Council agent trio batched on `feat/v0.4-F09-F10-F11-council-agents` (PR #28 pending Codex review).
+- **v0.4 Council** — Phase 10 GREEN. Phase 11 in flight: F01–F08 merged (#20–#27). F09/F10/F11 Council agent trio merged (#28 `878e276`). F12/F13/F14 Write Gate + proposal card + greeting batched on `feat/v0.4-F12-F13-F14-write-gate-and-greeting` (PR #29 pending Codex review).
 - **v0.5 Teams** — not started.
 - **v0.6 Multi-list + Tracker + Branching** — not started.
 - **v1.0 Full launch** — not started.
@@ -35,6 +35,10 @@ This is the cross-release view. Per-release progress lives under each release fo
 ## Session log
 
 Every working session appends one entry. Keep entries terse.
+
+### 2026-04-21 — F12+F13+F14 opened as batch PR #29 (Write Gate + proposal card + greeting)
+
+- Three sequential commits on `feat/v0.4-F12-F13-F14-write-gate-and-greeting`: F12 `c6be8f3`, F13 `63809b4`, F14 `24c2b85`. 280/280 tests green, typecheck 0, lint clean, `npm run build` green. Details in `docs/releases/v0.4-council/progress.md`.
 
 ### 2026-04-21 — F08 close (GREEN) + F09/F10/F11 open as batch PR (Council agent trio)
 

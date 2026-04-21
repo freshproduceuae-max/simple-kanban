@@ -30,9 +30,9 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F09 | Researcher agent (web + memory, fail-visible) | #28 | ☑ |
 | F10 | Consolidator agent (streaming, fail-hard) | #28 | ☑ |
 | F11 | Critic agent (risk-threshold dispatch, fail-quiet) | #28 | ☑ |
-| F12 | Council Write Gate server contract | — | ☐ |
-| F13 | Proposal card UI + tap-to-approve flow | — | ☐ |
-| F14 | Morning greeting flow (memory-only, ≤ 200 chars) | — | ☐ |
+| F12 | Council Write Gate server contract | #29 | ☑ |
+| F13 | Proposal card UI + tap-to-approve flow | #29 | ☑ |
+| F14 | Morning greeting flow (memory-only, ≤ 200 chars) | #29 | ☑ |
 | F15 | Chat mode | — | ☐ |
 | F16 | Plan mode | — | ☐ |
 | F17 | Advise mode | — | ☐ |
@@ -93,6 +93,15 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-21 — F12/F13/F14 opened as batch PR #29 (Write Gate + proposal card + greeting)
+
+- Branch `feat/v0.4-F12-F13-F14-write-gate-and-greeting` carries three sequential commits per the F09+F10+F11 template. CD instruction: "not only 12 — do 3 features together or more and prepare for an approval after few hours."
+- **F12 Council Write Gate server contract (`c6be8f3`)** — `lib/persistence/supabase-proposal-repository.ts` (real repo: 24h TTL, FIFO cap of 10 pending per user via `enforcePendingCap`, `markApproved` stores SHA-256 hash only and uses `.eq('status','pending')` as a defensive transition guard). `lib/council/write-gate/verify.ts` exports `mintApprovalToken()` (32-byte base64url), `hashApprovalToken()`, and `verifyApprovalContext()` — repo throws collapse to `verification-failed` so DB errors don't leak reason codes. Routes: `POST /api/council/proposals` (create, validates `kind ∈ {task,memo,advice}` via `readonly as const` tuple — avoids Set-iteration TS2802) returns 201 `{proposalId, expiresAt, status}`; `POST /api/council/proposals/[id]/approve` atomically findById → 410 if expired/not-pending → mint+hash+markApproved → taskRepo.create with `ApprovalContext`. User-originated mutations in `lib/board/actions.ts` stay on the `mintUserApprovalContext()` path; repo-row verification is only for Council-originated approvals. 27 tests.
+- **F13 proposal card + tap-to-approve flow (`63809b4`)** — `components/proposal-card/ProposalCard.tsx`. States: `pending | approving | approved | expired | failed`. Dashed border + `--shadow-proposal`. On tap: 150ms `scale-[0.98] bg-accent-moss-300/25` flash (APPROVE_FLASH_MS), POST to `/api/council/proposals/${id}/approve` via injectable `approveFetch` prop. 410 → expired (archive-with-explanation + `onArchived('expired')`); 5xx → failed with Try-again rearm; mid-flight double-tap blocked by state check. 7 tests.
+- **F14 morning greeting flow (`24c2b85`)** — `lib/council/greeting/index.ts` exports `deriveGreetingSignals` (column counts, top-1 overdue title with 40-char privacy genericizer, 30-day staleness horizon), `capGreeting` (≤2 sentences AND ≤200 chars, word-boundary backoff, `…` on truncate), `composeFullGreeting` (streams with single-emit invariant, never attaches `tools` — memory-only hot path per vision §9, degrades to no-summaries on memoryRepo throw, falls back to `GREETING_FAIL_SENTENCE` on SDK error), `shortReentryLine`. `lib/council/greeting/last-session.ts` factored as its own module so the route test mocks at a clean seam instead of the Supabase builder chain. `app/api/council/greeting/route.ts`: first-of-day → `text/plain` stream with `x-greeting-kind: full`; same-day → JSON reentry. Tz-math rewrite — original `toLocaleString` approach mis-boundaried by 4h on Asia/Dubai CI; replaced with Intl offset probing (format UTC midnight through tz, read clock, subtract). 19 tests.
+- 280/280 tests green, typecheck 0, lint clean, `npm run build` green. 18 routes (15 + 3 new: `/api/council/proposals`, `/api/council/proposals/[id]/approve`, `/api/council/greeting`).
+- PR #29 opened; awaiting Codex review.
 
 ### 2026-04-21 — F08 close (GREEN) + F09/F10/F11 opened as batch PR
 
