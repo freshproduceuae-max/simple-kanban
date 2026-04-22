@@ -319,6 +319,60 @@ describe('runCouncilTurn', () => {
     });
   });
 
+  it('on budget cut: writes a `session-end` memory summary (mirrors idle rollover / sign-out)', async () => {
+    const writeSummary = vi.fn(async () => undefined);
+    const memoryRepo = {
+      listSummariesForUser: vi.fn(async () => []),
+      writeSummary,
+    } as unknown as Parameters<typeof runCouncilTurn>[1]['memoryRepo'];
+    const sessionRepo = {
+      appendTurn: vi.fn(),
+      sumSessionTokens: vi.fn(async () => 0),
+      endSession: vi.fn(async () => {}),
+    } as unknown as Parameters<typeof runCouncilTurn>[1]['sessionRepo'];
+    const metricsRepo = {
+      record: vi.fn(async () => {}),
+      listForUser: vi.fn(async () => []),
+      dailyTokenTotalForUser: vi.fn(async () => 500_000),
+    };
+
+    const result = await runCouncilTurn(
+      {
+        userId: 'u-sum',
+        sessionId: 's-sum',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      {
+        sessionRepo,
+        memoryRepo,
+        metricsRepo: metricsRepo as unknown as Parameters<
+          typeof runCouncilTurn
+        >[1]['metricsRepo'],
+      },
+    );
+    // Drain the stream so the fire-and-forget summary write has a
+    // chance to resolve before we assert.
+    for await (const _ of result.stream) void _;
+    await result.done;
+    // Allow the void-awaited writeSummary IIFE to flush.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(writeSummary).toHaveBeenCalledTimes(1);
+    const payload = (writeSummary.mock.calls[0] as unknown[])[0] as {
+      user_id: string;
+      session_id: string;
+      kind: string;
+      content: string;
+    };
+    expect(payload.user_id).toBe('u-sum');
+    expect(payload.session_id).toBe('s-sum');
+    expect(payload.kind).toBe('session-end');
+    expect(payload.content).toMatch(/budget cut/i);
+    expect(payload.content).toMatch(/daily token cap/i);
+  });
+
   it('on budget cut: invalidates the resolver cache entry for the over-budget session', async () => {
     // Seed the resolver cache so we can prove dispatch clears the slot.
     // Without the clear, the next turn's resolveSessionId would reuse

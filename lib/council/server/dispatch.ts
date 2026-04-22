@@ -137,6 +137,28 @@ export async function runCouncilTurn(
     // next turn falls through to `startSession` and opens a fresh row,
     // rather than re-cutting on the same cached id.
     invalidateSessionCacheBySessionId(input.sessionId);
+    // Mirror the other session-end paths (idle rollover, sign-out) by
+    // writing a `session-end` summary. Budget-terminated sessions are
+    // real ended sessions per PRD §10.2 / §11.1; without this row the
+    // Researcher / greeting memory hand-off would skip the closure
+    // entirely and future turns would lose the context that this
+    // session ended because a cap was hit.
+    const cutReason =
+      budget.dailyUsed >= budget.dailyCap
+        ? `daily token cap (${budget.dailyUsed}/${budget.dailyCap})`
+        : `session token ceiling (${budget.sessionUsed}/${budget.sessionCeiling})`;
+    void (async () => {
+      try {
+        await deps.memoryRepo.writeSummary({
+          user_id: input.userId,
+          session_id: input.sessionId,
+          kind: 'session-end',
+          content: `Session closed by budget cut — ${cutReason}. Mode: ${input.mode}.`,
+        });
+      } catch (summaryErr) {
+        log('dispatch: writeSummary after budget cut failed (swallowed)', summaryErr);
+      }
+    })();
 
     // Operator notification (F22 §4): first daily- or session-cap hit
     // fires an email. The email module's 1-hour dedup keys on
