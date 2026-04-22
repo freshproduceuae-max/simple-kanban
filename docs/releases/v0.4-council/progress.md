@@ -38,9 +38,9 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F17 | Advise mode | #30 | ☑ |
 | F18 | Session turn logging + cold-path summaries | #31 | ☑ |
 | F19 | Read-only Session history list view | #31 | ☑ |
-| F20 | Error-email pipeline (Resend) | — | ☐ |
-| F21 | Token + latency instrumentation | — | ☐ |
-| F22 | Token-budget enforcement (session + daily 500k cap) | — | ☐ |
+| F20 | Error-email pipeline (Resend) | #33 | ☑ |
+| F21 | Token + latency instrumentation | #33 | ☑ |
+| F22 | Token-budget enforcement (session + daily 500k cap) | #33 | ☑ |
 
 ### Beta tier — `v0.4.0-beta`
 
@@ -68,7 +68,7 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 
 A milestone does not cut until every feature in its tier (and all lower tiers) has `passes: true`.
 
-- [ ] `v0.4.0-alpha` — all of F01–F22 pass
+- [x] `v0.4.0-alpha` — all of F01–F22 pass
 - [ ] `v0.4.0-beta` — all of F01–F26 pass
 - [ ] `v0.4.0` — all of F01–F32 pass + acceptance proxies from PRD §3
 
@@ -93,6 +93,15 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-22 — F20/F21/F22 merged (#33 `bd85168`) — **alpha milestone GREEN**
+
+- Batch B2 (F20+F21+F22) squash-merged to `main`. All of F01–F22 now pass → `v0.4.0-alpha` milestone gate closes.
+- **F20 — Resend error-email pipeline:** `lib/council/errors/email.ts` with `reportAgentError({userId, agent, failureClass, message, context, cause})`. In-memory 1-hour dedup keyed on `(userId, agent, failureClass)`; lazy Resend import so cold routes stay lean; env-driven recipient via `ERROR_EMAIL_RECIPIENT`. `ErrorFailureClass` union: `anthropic_error | anthropic_429 | resend_error | session_cap_hit | daily_cap_hit | unknown`. Fail-quiet inside fail-quiet — a failed email send logs but never throws.
+- **F21 — per-call instrumentation:** `lib/council/shared/instrument.ts` (`classifyOutcome`, `recordMetric`) + `SupabaseMetricsRepository` (record / listForUser / dailyTokenTotalForUser backed by `council_metrics_daily` view, UTC-midnight day-window). Researcher / Consolidator / Critic / Greeting all time `firstTokenMs` + `fullReplyMs`, capture in/out tokens from `message_start` + `message_delta`, emit fire-and-forget rows. `errorHook` seam lets each agent route its failure class into F20 without the metrics write blocking the user path.
+- **F22 — token-budget enforcement:** `lib/council/shared/budget-check.ts` — `checkBudget()` reads session + daily totals in parallel (`Promise.allSettled`, degrades to 0 on outage so a metrics flake never locks a user out). Ceilings: greeting 5k / plan 40k / chat+advise 10k; daily 500k (overridable via `COUNCIL_TOKEN_CAP_DAILY`). Verdicts: ok / warn (≥ 80%) / cut. Dispatch's cut branch ends the row, invalidates the warm resolver cache slot, emits the specific-class operator email, and writes a `kind:'session-end'` summary so the session leaves a retrievable trail. Warn prepends a one-line banner to the stream once at the top.
+- Round 1 Codex (on `523d1b0`): daily-cap window UTC-midnight normalized; session-end on cut; operator email on daily cut. Round 2 (on `5ed76fe`): resolver-cache invalidation on cut + specific `failureClass` on the operator email (not literal `'unknown'`). Round 3 (on `61c1903`): `session-end` summary write on cut mirrors idle-rollover / sign-out. Round 4 clean — no blocking findings.
+- Totals across B2: +23 tests (5 email, 7 budget-check, 5 instrument, 5 dispatch cut regressions including cache-clear + per-class email + session-end summary + Round 4 residual check). PR landed with 14/14 dispatch tests, tsc/lint/build all clean. Pre-existing PGlite + ESLint-loader flakes unchanged (both pass solo).
 
 ### 2026-04-22 — F18/F19 opened as batch PR #31 (persistence spine, B1 of remaining 5 alpha)
 

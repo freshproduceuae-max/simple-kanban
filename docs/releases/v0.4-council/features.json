@@ -339,7 +339,7 @@
         "Read recipient from ERROR_EMAIL_RECIPIENT env var",
         "Redact user turn content from stack traces"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F21",
@@ -355,7 +355,7 @@
         "Persist per-call metrics to a metrics table for per-agent breakdown in F27",
         "Add counters for Anthropic 429, Supabase error, error-email failure"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F22",
@@ -373,7 +373,7 @@
         "On 500k/day cap: soft-pause + error-email (first hit per user per day)",
         "Read cap from COUNCIL_TOKEN_CAP_DAILY env"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F23",
