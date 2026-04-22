@@ -454,30 +454,17 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
   });
 
-  it('finalizes orphaned prior-auth rows when a fresh auth-session slot opens', async () => {
-    // Round-3 P2: when a new (userId, authSessionId) cache slot is
-    // minted (cache miss), ask the DB to close every still-open row
-    // owned by this user under a different auth fingerprint and
-    // summarize each one. This covers the case where the prior
-    // auth-session entry lives on a now-cold serverless instance
-    // (or was never seen by any instance that's still warm) and
-    // would otherwise stay `ended_at IS NULL` forever.
-    const staleRow = {
-      id: REAL_UUID_A,
-      user_id: 'u1',
-      mode: 'chat' as const,
-      auth_session_id: 'auth-A',
-      started_at: new Date().toISOString(),
-      ended_at: '2026-04-22T00:00:00Z',
-      summary_written_at: null,
-    };
-    const {
-      repo,
-      startSession,
-      finalizeStaleSessionsForUser,
-    } = makeSessionRepo();
+  it('does not close another device’s live session when a new auth session arrives', async () => {
+    // Round-5 regression: on the first Council request from device B,
+    // `existing` is null for the (u1, auth-B) cache slot. An earlier
+    // implementation fired `finalizeStaleSessionsForUser` here, which
+    // closed every row owned by u1 whose auth_session_id differed —
+    // including device A's still-live session. PRD §10.2 requires
+    // concurrent sessions stay live: signing in on a second device
+    // must not silently end the first device's Council session.
+    const { repo, startSession, finalizeStaleSessionsForUser, endSession } =
+      makeSessionRepo();
     const { repo: memoryRepo, writeSummary } = makeMemoryRepo();
-    finalizeStaleSessionsForUser.mockResolvedValueOnce([staleRow]);
     startSession.mockResolvedValueOnce({
       id: REAL_UUID_B,
       user_id: 'u1',
@@ -495,26 +482,18 @@ describe('resolveSessionId — F18 DB-backed', () => {
       memoryRepo,
     });
     expect(got).toBe(REAL_UUID_B);
-    expect(finalizeStaleSessionsForUser).toHaveBeenCalledWith({
-      userId: 'u1',
-      authSessionId: 'auth-B',
-    });
-    // Fire-and-forget — let the microtask queue drain.
+    // Let any fire-and-forget microtasks drain so we can assert no
+    // stale-sweep ran in the background.
     await new Promise((r) => setTimeout(r, 0));
-    expect(writeSummary).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_id: 'u1',
-        session_id: REAL_UUID_A,
-        kind: 'session-end',
-      }),
-    );
+    expect(finalizeStaleSessionsForUser).not.toHaveBeenCalled();
+    expect(endSession).not.toHaveBeenCalled();
+    expect(writeSummary).not.toHaveBeenCalled();
   });
 
-  it('does not call finalizeStaleSessionsForUser on an idle-window rollover (same auth session)', async () => {
-    // Same (userId, authSessionId) slot — the old session is
-    // finalized via the in-memory `existing` path, not via the
-    // cross-auth DB sweep. That sweep is only for the case where the
-    // auth fingerprint changed.
+  it('does not call finalizeStaleSessionsForUser on a same-auth idle rollover', async () => {
+    // Same (userId, authSessionId) slot — the old session is finalized
+    // via the in-memory `existing` path. The cross-auth DB sweep is
+    // not called from the resolver at all (round-5 fix).
     const { repo, startSession, finalizeStaleSessionsForUser } =
       makeSessionRepo();
     const { repo: memoryRepo } = makeMemoryRepo();
@@ -546,7 +525,6 @@ describe('resolveSessionId — F18 DB-backed', () => {
       sessionRepo: repo,
       memoryRepo,
     });
-    expect(finalizeStaleSessionsForUser).toHaveBeenCalledTimes(1); // first call opens the slot
     await resolveSessionId({
       userId: 'u1',
       authSessionId: 'auth-1',
@@ -555,9 +533,8 @@ describe('resolveSessionId — F18 DB-backed', () => {
       sessionRepo: repo,
       memoryRepo,
     });
-    // Second call stays in the same slot (existing entry present) —
-    // no new sweep.
-    expect(finalizeStaleSessionsForUser).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(finalizeStaleSessionsForUser).not.toHaveBeenCalled();
   });
 
   it('swallows finalize errors so an idle-rollover never fails the new turn', async () => {

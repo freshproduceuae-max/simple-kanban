@@ -12,11 +12,15 @@ import type { CouncilMode } from '@/lib/persistence/types';
  *
  *   - Same user, same auth session, same idle window (30 min) →
  *     reuse the cached id.
- *   - Same user, different auth session (sign-out then re-sign-in) →
- *     start a fresh `council_sessions` row, finalize the prior
- *     entry for this user. The cache is keyed on
- *     `(userId, authSessionId)` so a fresh login naturally gets a
- *     fresh session per PRD §10.2.
+ *   - Same user, different auth session (new device, or sign-out
+ *     then re-sign-in) → start a fresh `council_sessions` row. The
+ *     cache is keyed on `(userId, authSessionId)` so the new
+ *     fingerprint lands in its own slot without disturbing any
+ *     other live auth session's row. Closing the prior row is an
+ *     explicit sign-out concern (future endpoint), not a side
+ *     effect of a new request — we cannot distinguish "second
+ *     device signs in" from "first device signed out" at this
+ *     layer, and PRD §10.2 requires concurrent sessions stay live.
  *   - New user, OR same user past the idle window → start a fresh
  *     `council_sessions` row and cache the new id.
  *   - Client-provided id (UUID) → validated before trust. If it
@@ -157,9 +161,15 @@ export async function resolveSessionId(
     return existing.sessionId;
   }
 
-  // Idle window closed (or first-ever turn on this identity) —
-  // finalize the prior session as a cold-path pass, then start a
-  // fresh one.
+  // Idle window closed — finalize the prior session as a cold-path
+  // pass, then start a fresh one. No-op on the first-ever turn for
+  // this (userId, authSessionId) slot: we deliberately do NOT touch
+  // other auth-session rows here. A fresh slot can mean "new device
+  // signed in" (the other device's row must stay live) just as
+  // easily as "user signed out and back in" — the resolver cannot
+  // tell them apart, so closing anyone's row as a side effect of a
+  // new request would break concurrent sessions. Explicit sign-out
+  // cleanup belongs in a dedicated endpoint.
   if (existing) {
     const toFinalize = existing;
     void finalizeSession(
@@ -168,23 +178,6 @@ export async function resolveSessionId(
         sessionId: toFinalize.sessionId,
         mode: toFinalize.mode,
       },
-      {
-        sessionRepo: input.sessionRepo,
-        memoryRepo: input.memoryRepo,
-        log,
-      },
-    );
-  } else {
-    // No in-memory entry for this (userId, authSessionId) slot. Two
-    // reasons this can happen: (a) genuinely first turn for this user
-    // on this instance, (b) sign-out + re-sign-in — a prior auth
-    // session's cache entry is orphaned in another (now cold) slot,
-    // or was never on this serverless instance to begin with. Ask the
-    // DB to close every open row owned by this user under a different
-    // auth fingerprint and summarize each so the history view and the
-    // Researcher's memory both see a clean hand-off.
-    void finalizeStaleAuthSessions(
-      { userId: input.userId, authSessionId: input.authSessionId },
       {
         sessionRepo: input.sessionRepo,
         memoryRepo: input.memoryRepo,
@@ -245,49 +238,3 @@ async function finalizeSession(
   }
 }
 
-/**
- * Cold-path cross-auth-session finalizer. Runs when a request lands
- * under a (userId, authSessionId) pair the cache has never seen — so
- * either it's the first turn on this instance, or the user just
- * signed out and back in. Asks the DB to end every still-open row
- * owned by this user under a different auth fingerprint (including
- * pre-migration-011 rows whose fingerprint is NULL) and writes a
- * `session-end` summary per row. Errors are swallowed — finalization
- * is background work that must not fail the incoming turn.
- */
-async function finalizeStaleAuthSessions(
-  args: { userId: string; authSessionId: string },
-  deps: {
-    sessionRepo: SessionRepository;
-    memoryRepo: CouncilMemoryRepository;
-    log: (msg: string, err: unknown) => void;
-  },
-): Promise<void> {
-  let stale: Awaited<
-    ReturnType<SessionRepository['finalizeStaleSessionsForUser']>
-  > = [];
-  try {
-    stale = await deps.sessionRepo.finalizeStaleSessionsForUser({
-      userId: args.userId,
-      authSessionId: args.authSessionId,
-    });
-  } catch (err) {
-    deps.log(
-      'session: finalizeStaleSessionsForUser failed (swallowed)',
-      err,
-    );
-    return;
-  }
-  for (const row of stale) {
-    try {
-      await deps.memoryRepo.writeSummary({
-        user_id: args.userId,
-        session_id: row.id,
-        kind: 'session-end',
-        content: `Session closed on sign-out. Mode: ${row.mode}.`,
-      });
-    } catch (err) {
-      deps.log('session: writeSummary failed (swallowed)', err);
-    }
-  }
-}
