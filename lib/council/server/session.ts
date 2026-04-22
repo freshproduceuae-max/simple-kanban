@@ -1,82 +1,240 @@
-import { randomUUID } from 'node:crypto';
+import type { SessionRepository } from '@/lib/persistence/session-repository';
+import type { CouncilMemoryRepository } from '@/lib/persistence/council-memory-repository';
+import type { CouncilMode } from '@/lib/persistence/types';
 
 /**
- * F18 replaces this.
+ * F18 — DB-backed session resolver.
  *
- * Temporary session-id bridge so F15/F16/F17 mode routes have a stable
- * session handle without depending on the full F18 session lifecycle
- * (start row, end row, idle detection, summary scheduling).
+ * The Council-facing routes (chat / plan / advise / greeting) each need
+ * a real `council_sessions.id` so the agent trio's `appendTurn` writes
+ * satisfy the FK on `council_turns.session_id`. This module owns the
+ * find-or-create policy:
  *
- * Contract (deliberately narrow — matches what the three mode routes
- * actually need and nothing more):
+ *   - Same user, same auth session, same idle window (30 min) →
+ *     reuse the cached id.
+ *   - Same user, different auth session (new device, or sign-out
+ *     then re-sign-in) → start a fresh `council_sessions` row. The
+ *     cache is keyed on `(userId, authSessionId)` so the new
+ *     fingerprint lands in its own slot without disturbing any
+ *     other live auth session's row. Closing the prior row is an
+ *     explicit sign-out concern (future endpoint), not a side
+ *     effect of a new request — we cannot distinguish "second
+ *     device signs in" from "first device signed out" at this
+ *     layer, and PRD §10.2 requires concurrent sessions stay live.
+ *   - New user, OR same user past the idle window → start a fresh
+ *     `council_sessions` row and cache the new id.
+ *   - Client-provided id (UUID) → validated before trust. If it
+ *     matches the cache entry within the idle window we skip the DB
+ *     entirely; otherwise we ask the repo for a `findResumableSession`
+ *     lookup (owned by user, still open, activity within idle cutoff).
+ *     Anything stale or unknown is dropped and we fall through as if
+ *     no id had been echoed.
  *
- *   - `findOrCreateSessionId({ userId })` returns a string session id.
- *   - Same user within 30 minutes of idle → same id.
- *   - Different user, OR same user past 30 min idle → new id.
+ * When the idle window closes we fire-and-forget a cold-path end-of-
+ * session pass: stamp `ended_at` on the previous row and write a
+ * session-end summary (PRD §10.2 / §11.1). The pass runs in the
+ * background so the incoming turn never waits on it; errors are
+ * swallowed with a log because the user should not see persistence
+ * flakes as route failures.
  *
- * In-memory Map is fine for v0.4 alpha (single-process Vercel
- * serverless; state is per-invocation). A cold start produces a fresh
- * session id; that's acceptable because the client's shelf also starts
- * fresh on every page load. F18 will replace this with a Supabase-
- * backed `council_sessions` row + proper idle detection + end-of-
- * session summary scheduling.
+ * In-memory cache is deliberate. Vercel serverless instances are
+ * per-invocation warm; on a cold start we fall through to a fresh
+ * `startSession`, which produces a new row and a new id. The shelf
+ * persists its sessionId across page loads, so a returning user will
+ * usually echo the prior id back via `clientProvided` and we'll trust
+ * it without touching the DB.
  *
- * Every call to this helper is a candidate for F18 migration — grep
- * `F18 replaces this` to find them all when F18 lands.
+ * This module replaces the F15-F17 bridge that stored a randomUUID()
+ * keyed only by userId. The old bridge never wrote to the DB; F18
+ * closes that gap so turns and proposals can FK to real session rows.
  */
 
 export const SESSION_IDLE_WINDOW_MS = 30 * 60 * 1000; // 30 min
 
-type SessionEntry = { sessionId: string; lastTouchedAt: number };
+type SessionEntry = {
+  sessionId: string;
+  lastTouchedAt: number;
+  mode: CouncilMode;
+  userId: string;
+};
 
-const sessionByUser = new Map<string, SessionEntry>();
+/**
+ * Cache is keyed by `${userId}:${authSessionId}` so a sign-out +
+ * re-sign-in (which bumps the auth session fingerprint) lands in a
+ * fresh slot and starts a new Council session.
+ */
+const sessionByIdentity = new Map<string, SessionEntry>();
+
+function cacheKey(userId: string, authSessionId: string): string {
+  return `${userId}:${authSessionId}`;
+}
 
 export function __resetSessionCacheForTests(): void {
-  sessionByUser.clear();
+  sessionByIdentity.clear();
 }
 
 /**
- * Pure helper so tests can drive the clock. Production uses Date.now().
+ * UUID guard — trust a client-provided id only if it looks like a real
+ * `gen_random_uuid()` value. Prevents a stale/garbage shelf state from
+ * poisoning the cache with an id that will then fail the FK when the
+ * agent trio tries to `appendTurn`.
  */
-export function findOrCreateSessionId(args: {
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(maybe: string): boolean {
+  return UUID_REGEX.test(maybe);
+}
+
+export type ResolveSessionInput = {
   userId: string;
+  /**
+   * Fingerprint of the current Supabase auth session — see
+   * `getAuthedIdentity`. Combined with `userId` to key the cache so
+   * sign-out + re-sign-in naturally starts a new Council session.
+   */
+  authSessionId: string;
+  mode: CouncilMode;
+  clientProvided?: string;
   now?: number;
-}): string {
-  const now = args.now ?? Date.now();
-  const existing = sessionByUser.get(args.userId);
+  sessionRepo: SessionRepository;
+  memoryRepo: CouncilMemoryRepository;
+  log?: (msg: string, err: unknown) => void;
+};
+
+/**
+ * Returns a real `council_sessions.id` for this turn. Async: may hit
+ * the DB. Callers await it before invoking the agent trio so every
+ * subsequent `appendTurn` has a valid FK target.
+ */
+export async function resolveSessionId(
+  input: ResolveSessionInput,
+): Promise<string> {
+  const now = input.now ?? Date.now();
+  const log = input.log ?? ((msg, err) => console.error(msg, err));
+  const key = cacheKey(input.userId, input.authSessionId);
+
+  // Client echoed an id back. A well-formed UUID is necessary but not
+  // sufficient — we must prove it's still a live session this user
+  // owns before we cache it, otherwise stale shelf state pins the
+  // user to a dead session forever (and causes FK failures on the
+  // next appendTurn / proposal insert).
+  const trimmed = input.clientProvided?.trim();
+  if (trimmed && isUuid(trimmed)) {
+    const cached = sessionByIdentity.get(key);
+    if (
+      cached &&
+      cached.sessionId === trimmed &&
+      now - cached.lastTouchedAt <= SESSION_IDLE_WINDOW_MS
+    ) {
+      cached.lastTouchedAt = now;
+      return trimmed;
+    }
+
+    const idleCutoffIso = new Date(now - SESSION_IDLE_WINDOW_MS).toISOString();
+    try {
+      const row = await input.sessionRepo.findResumableSession({
+        sessionId: trimmed,
+        userId: input.userId,
+        authSessionId: input.authSessionId,
+        idleCutoffIso,
+      });
+      if (row) {
+        sessionByIdentity.set(key, {
+          sessionId: row.id,
+          lastTouchedAt: now,
+          mode: row.mode,
+          userId: input.userId,
+        });
+        return row.id;
+      }
+      // Row came back null — stale, unknown, or past idle. Fall
+      // through to the cache/startSession flow below.
+    } catch (err) {
+      log('session: findResumableSession failed (falling through)', err);
+    }
+  }
+
+  const existing = sessionByIdentity.get(key);
   if (existing && now - existing.lastTouchedAt <= SESSION_IDLE_WINDOW_MS) {
     existing.lastTouchedAt = now;
     return existing.sessionId;
   }
-  const fresh: SessionEntry = {
-    sessionId: randomUUID(),
+
+  // Idle window closed — finalize the prior session as a cold-path
+  // pass, then start a fresh one. No-op on the first-ever turn for
+  // this (userId, authSessionId) slot: we deliberately do NOT touch
+  // other auth-session rows here. A fresh slot can mean "new device
+  // signed in" (the other device's row must stay live) just as
+  // easily as "user signed out and back in" — the resolver cannot
+  // tell them apart, so closing anyone's row as a side effect of a
+  // new request would break concurrent sessions. Explicit sign-out
+  // cleanup belongs in a dedicated endpoint.
+  if (existing) {
+    const toFinalize = existing;
+    void finalizeSession(
+      {
+        userId: input.userId,
+        sessionId: toFinalize.sessionId,
+        mode: toFinalize.mode,
+      },
+      {
+        sessionRepo: input.sessionRepo,
+        memoryRepo: input.memoryRepo,
+        log,
+      },
+    );
+  }
+
+  const row = await input.sessionRepo.startSession({
+    userId: input.userId,
+    mode: input.mode,
+    authSessionId: input.authSessionId,
+  });
+  sessionByIdentity.set(key, {
+    sessionId: row.id,
     lastTouchedAt: now,
-  };
-  sessionByUser.set(args.userId, fresh);
-  return fresh.sessionId;
+    mode: input.mode,
+    userId: input.userId,
+  });
+  return row.id;
 }
 
 /**
- * Escape hatch for callers that already hold a client-provided session
- * id (e.g. the shelf remembers the id across consecutive turns). If the
- * id is non-empty we trust it; otherwise we fall through to find-or-
- * create. This is how the route accepts an optional `sessionId` in the
- * request body without hard-coding client-server assumptions.
+ * Cold-path session finalizer. Stamps `ended_at` on the session row
+ * and writes a minimal end-of-session summary. Errors are swallowed —
+ * a background write must never surface as a route failure.
+ *
+ * The content here is deliberately boilerplate for v0.4 alpha. A
+ * proper LLM-driven summary ("what was discussed, what got decided")
+ * is a later enhancement; the row being present is what the
+ * Researcher / greeting read paths need today.
  */
-export function resolveSessionId(args: {
-  userId: string;
-  clientProvided?: string;
-  now?: number;
-}): string {
-  const trimmed = args.clientProvided?.trim();
-  if (trimmed && trimmed.length > 0) {
-    // Refresh the cache so subsequent calls without an explicit id stay
-    // aligned with the client's view of the session.
-    sessionByUser.set(args.userId, {
-      sessionId: trimmed,
-      lastTouchedAt: args.now ?? Date.now(),
+async function finalizeSession(
+  args: { userId: string; sessionId: string; mode: CouncilMode },
+  deps: {
+    sessionRepo: SessionRepository;
+    memoryRepo: CouncilMemoryRepository;
+    log: (msg: string, err: unknown) => void;
+  },
+): Promise<void> {
+  try {
+    await deps.sessionRepo.endSession({
+      sessionId: args.sessionId,
+      userId: args.userId,
     });
-    return trimmed;
+  } catch (err) {
+    deps.log('session: endSession failed (swallowed)', err);
   }
-  return findOrCreateSessionId({ userId: args.userId, now: args.now });
+  try {
+    await deps.memoryRepo.writeSummary({
+      user_id: args.userId,
+      session_id: args.sessionId,
+      kind: 'session-end',
+      content: `Session closed after 30 min idle. Mode: ${args.mode}.`,
+    });
+  } catch (err) {
+    deps.log('session: writeSummary failed (swallowed)', err);
+  }
 }
+

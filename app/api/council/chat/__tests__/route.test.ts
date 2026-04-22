@@ -2,12 +2,38 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const getAuthedUserId = vi.fn();
 const runCouncilTurnMock = vi.fn();
+const startSession = vi.fn();
+const writeSummary = vi.fn();
+const endSession = vi.fn();
+const findResumableSession = vi.fn();
+const REAL_UUID = 'aaaaaaaa-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
   getAuthedUserId: () => getAuthedUserId(),
+  getAuthedIdentity: async () => ({
+    userId: await getAuthedUserId(),
+    authSessionId: 'auth-1',
+  }),
 }));
 vi.mock('@/lib/council/server/dispatch', () => ({
   runCouncilTurn: (...a: unknown[]) => runCouncilTurnMock(...a),
+}));
+vi.mock('@/lib/persistence/server', () => ({
+  getSessionRepository: () => ({
+    startSession: (...a: unknown[]) => startSession(...a),
+    endSession: (...a: unknown[]) => endSession(...a),
+    appendTurn: vi.fn(),
+    listSessionsForUser: vi.fn(),
+    listTurns: vi.fn(),
+    findResumableSession: (...a: unknown[]) => findResumableSession(...a),
+    finalizeStaleSessionsForUser: vi.fn(async () => []),
+  }),
+  getCouncilMemoryRepository: () => ({
+    writeSummary: (...a: unknown[]) => writeSummary(...a),
+    listSummariesForUser: vi.fn(async () => []),
+    writeRecall: vi.fn(),
+    listRecallsForTurn: vi.fn(),
+  }),
 }));
 
 import { POST as chatRoute } from '../route';
@@ -45,9 +71,38 @@ describe('POST /api/council/chat', () => {
   beforeEach(() => {
     getAuthedUserId.mockReset();
     runCouncilTurnMock.mockReset();
+    startSession.mockReset();
+    writeSummary.mockReset();
+    endSession.mockReset();
+    findResumableSession.mockReset();
     __resetSessionCacheForTests();
     getAuthedUserId.mockResolvedValue('u1');
     runCouncilTurnMock.mockResolvedValue(fakeTurn());
+    startSession.mockResolvedValue({
+      id: REAL_UUID,
+      user_id: 'u1',
+      mode: 'chat',
+      auth_session_id: 'auth-1',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
+    // Default: any well-formed client-provided UUID validates as live
+    // (simulating the common shelf-echo case). Tests that want to
+    // simulate a stale id override with mockResolvedValueOnce(null).
+    findResumableSession.mockImplementation(
+      async ({ sessionId }: { sessionId: string }) => ({
+        id: sessionId,
+        user_id: 'u1',
+        mode: 'chat',
+        auth_session_id: 'auth-1',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      }),
+    );
+    writeSummary.mockResolvedValue({});
+    endSession.mockResolvedValue(undefined);
   });
 
   it('401 when unauthenticated', async () => {
@@ -97,12 +152,21 @@ describe('POST /api/council/chat', () => {
     expect(input.webEnabled).toBe(true);
   });
 
-  it('honors a client-provided sessionId across turns', async () => {
-    await chatRoute(req({ sessionId: 'client-abc', userInput: 'first' }));
-    await chatRoute(req({ sessionId: 'client-abc', userInput: 'second' }));
+  it('honors a client-provided UUID sessionId across turns without re-hitting startSession', async () => {
+    const clientId = 'bbbbbbbb-1111-4222-8333-444444444444';
+    await chatRoute(req({ sessionId: clientId, userInput: 'first' }));
+    await chatRoute(req({ sessionId: clientId, userInput: 'second' }));
     const s1 = runCouncilTurnMock.mock.calls[0][0].sessionId;
     const s2 = runCouncilTurnMock.mock.calls[1][0].sessionId;
-    expect(s1).toBe('client-abc');
-    expect(s2).toBe('client-abc');
+    expect(s1).toBe(clientId);
+    expect(s2).toBe(clientId);
+    expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('ignores a malformed client-provided id and starts a real session instead', async () => {
+    await chatRoute(req({ sessionId: 'not-a-uuid', userInput: 'hi' }));
+    const s1 = runCouncilTurnMock.mock.calls[0][0].sessionId;
+    expect(s1).toBe(REAL_UUID);
+    expect(startSession).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getAuthedUserId } from '@/lib/auth/current-user';
+import { getAuthedIdentity } from '@/lib/auth/current-user';
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { extractPlanFrame } from '@/lib/council/server/plan-extract';
-import { getProposalRepository } from '@/lib/persistence/server';
-import { SessionRepositoryNotImplemented } from '@/lib/persistence/session-repository';
-import { CouncilMemoryRepositoryNotImplemented } from '@/lib/persistence/council-memory-repository';
+import {
+  getProposalRepository,
+  getSessionRepository,
+  getCouncilMemoryRepository,
+} from '@/lib/persistence/server';
 
 /**
  * POST /api/council/plan  (F16 — Plan mode)
@@ -45,8 +47,9 @@ type PlanRequest = {
 
 export async function POST(request: Request) {
   let userId: string;
+  let authSessionId: string;
   try {
-    userId = await getAuthedUserId();
+    ({ userId, authSessionId } = await getAuthedIdentity());
   } catch {
     return NextResponse.json({ error: 'not-authenticated' }, { status: 401 });
   }
@@ -67,10 +70,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionId = resolveSessionId({
+  const sessionRepo = getSessionRepository();
+  const memoryRepo = getCouncilMemoryRepository();
+  const sessionId = await resolveSessionId({
     userId,
+    authSessionId,
+    mode: 'plan',
     clientProvided:
       typeof body.sessionId === 'string' ? body.sessionId : undefined,
+    sessionRepo,
+    memoryRepo,
   });
 
   const { stream, done } = await runCouncilTurn(
@@ -83,8 +92,8 @@ export async function POST(request: Request) {
       forceCritic: true,
     },
     {
-      sessionRepo: new SessionRepositoryNotImplemented(),
-      memoryRepo: new CouncilMemoryRepositoryNotImplemented(),
+      sessionRepo,
+      memoryRepo,
     },
   );
 
@@ -106,15 +115,12 @@ export async function POST(request: Request) {
         try {
           const row = await repo.create({
             user_id: userId,
-            // F18 bridge: council_proposals.session_id is a FK to
-            // council_sessions(id), and F18 is the phase that starts
-            // inserting those rows. Until F18 lands we persist
-            // proposal rows with a null session linkage; the response
-            // header `x-council-session-id` still threads the
-            // synthetic session id to the client for conversation
-            // stitching. Do NOT flip this back to `sessionId` without
-            // first shipping F18's session-lifecycle writes.
-            session_id: null,
+            // F18 landed: sessionId is now a real council_sessions.id,
+            // so the proposal row links back to the session that
+            // produced it. The history view (F19) uses this linkage
+            // to reconstruct "what did the Council actually draft in
+            // this session?" without replaying the full turn log.
+            session_id: sessionId,
             kind: 'task',
             payload: { title },
           } as Parameters<typeof repo.create>[0]);

@@ -3,6 +3,24 @@ Terser than progress.md. One line per beat. Reverse-chronological (newest at top
 
 ---
 
+2026-04-22 F18+F19 open — persistence spine + /history (PR #31, B1 of the B1/B2 split of Batch B)
+- Branch: feat/v0.4-F18-F19-persistence-spine (2 sequential commits). B2 = F20+F21+F22 will follow as PR #32.
+- CD pick locked upstream: split Batch B into B1 (persistence/UI spine) and B2 (ops: error email + instrumentation + budget enforce). User reply "1" approved.
+- Commit 1 — F18 persistence spine (9cf445e):
+  * NEW lib/persistence/supabase-session-repository.ts — startSession inserts {user_id,mode}; endSession update with `.is('ended_at', null)` guard + explicit eq('user_id') RLS belt; appendTurn full shape; listSessionsForUser {limit(clamp 1..100), cursor(lt started_at)} desc; listTurns asc. DEFAULT_SESSIONS_PAGE_SIZE=25.
+  * NEW lib/persistence/supabase-council-memory-repository.ts — writeSummary {user_id,session_id,kind,content}; listSummariesForUser default 3 (clamp 1..50) desc. writeRecall/listRecallsForTurn still throw with F24 hint.
+  * lib/persistence/server.ts — getSessionRepository() + getCouncilMemoryRepository() factories. index.ts re-exports.
+  * lib/council/server/session.ts REWRITTEN — resolveSessionId now async. Cache Map<userId,{sessionId,lastTouchedAt,mode}>. UUID regex /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i gates clientProvided. Idle rollover: `void finalizeSession(...)` fire-and-forget = endSession + writeSummary kind:'session-end'. findOrCreateSessionId removed.
+  * All 4 routes (chat/plan/advise/greeting) — swapped NotImplemented stubs for repo factories, await resolveSessionId. Plan route now passes `session_id: sessionId` to proposal.create (was null under bridge).
+  * Route tests: extended vi.mock to include getSessionRepository/getCouncilMemoryRepository; replaced string ids ('client-abc' etc.) with real UUIDs since guard rejects malformed. +7 session-repo, +5 memory-repo, +6 session-resolver (rewritten), route tests updated.
+- Commit 2 — F19 /history view (788df6a):
+  * NEW lib/council/history/derive.ts — pure helpers. SessionHistoryRow type {id,mode,startedAt,endedAt,title,tokenCost,turnCount,outcome,durationMs}. deriveSessionTitle (first non-empty user turn, collapse whitespace, truncate 60 char + '…', FALLBACK_TITLE='(no messages)'). sumSessionTokens (null→0). deriveSessionOutcome (empty|done|ongoing). deriveDurationMs. formatDuration ('—'|'42s'|'1m 5s'|'2h 15m'). buildHistoryRow assembles.
+  * app/history/page.tsx REWRITTEN — Server Component, force-dynamic, revalidate 0. Auth check → redirect('/sign-in') on fail. listSessionsForUser({limit:25, cursor}). Per-session Promise.all(listTurns → buildHistoryRow). Table with PRD §10.3 columns (When|Mode|Title|Duration|Outcome|Tokens). "Older sessions →" only when full page. N+1 listTurns accepted at alpha; comment flags denormalized view for v0.5.
+  * app/history/__tests__/page.test.tsx — renders via renderToStaticMarkup(await HistoryPage(props)). next/navigation redirect mocked by throwing 'NEXT_REDIRECT'. 6 tests: auth redirect, empty state, single-row derivation, cursor passthrough, pagination link at 25, no link when short.
+  * +15 derive tests, +6 page tests.
+- Gates: 416/421 green (5 skipped, 1 pre-existing PGlite hook-timeout flake unchanged on main). typecheck 0, lint clean, build clean (/history → 8.88 kB ƒ dynamic).
+- Next: push branch, open PR #31 with body citing B1/B2 split + persistence-spine framing.
+
 2026-04-21 F15+F16+F17 open — three Council modes batched (PR #30, Batch A of remaining 8 alpha)
 - Branch: feat/v0.4-F15-F16-F17-council-modes (3 sequential commits). F12+F13+F14 template.
 - CD picks locked upstream of the branch: (1) three distinct routes, (2) JSON trailer frame for structured data, (3) Advise→Plan handoff via client re-POST, (4) Consolidator-requested chips (not always rendered). 8 remaining alpha features split 2-batch: A=F15/F16/F17, B=F18-F22.

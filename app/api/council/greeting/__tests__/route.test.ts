@@ -19,6 +19,12 @@ vi.mock('@/lib/persistence/server', () => ({
   getTaskRepository: () => ({
     listForUser: (...a: unknown[]) => listForUser(...a),
   }),
+  getCouncilMemoryRepository: () => ({
+    writeSummary: vi.fn(),
+    listSummariesForUser: vi.fn(async () => []),
+    writeRecall: vi.fn(),
+    listRecallsForTurn: vi.fn(),
+  }),
 }));
 
 vi.mock('@/lib/council/greeting/last-session', () => ({

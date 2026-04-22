@@ -160,10 +160,48 @@ describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, 
     }
   });
 
+  it('migration 012 closes legacy rows whose auth_session_id is null (idempotent backfill)', async () => {
+    // Seed a row that looks like pre-migration-011 state: a live
+    // session row (ended_at IS NULL) with no auth fingerprint.
+    // Migration 012 should have already run in `beforeAll`, but
+    // its effect is stateless on rows inserted here — so we insert
+    // a legacy row now and re-run 012 to confirm the backfill is
+    // idempotent and actually stamps `ended_at`.
+    await db.exec(`
+      with u as (
+        insert into auth.users (id, email)
+        values (gen_random_uuid(), 'legacy@example.com')
+        returning id
+      )
+      insert into public.council_sessions (user_id, mode, auth_session_id, ended_at)
+      select u.id, 'chat', null, null from u;
+    `);
+
+    const before = await db.query<{ id: string; ended_at: string | null }>(
+      `select id, ended_at from public.council_sessions
+        where auth_session_id is null`,
+    );
+    expect(before.rows.some((r) => r.ended_at === null)).toBe(true);
+
+    // Re-apply migration 012 — it should be idempotent.
+    const sql = readFileSync(
+      resolve(migrationsDir, '012_council_sessions_close_legacy_null_auth.sql'),
+      'utf8',
+    );
+    await db.exec(sql);
+
+    const after = await db.query<{ id: string; ended_at: string | null }>(
+      `select id, ended_at from public.council_sessions
+        where auth_session_id is null`,
+    );
+    expect(after.rows.every((r) => r.ended_at !== null)).toBe(true);
+  });
+
   it('creates every hot-path index from migration 010', async () => {
     const expectedIndexes = [
       'council_turns_session_created_idx',
       'council_sessions_user_started_idx',
+      'council_sessions_user_auth_live_idx',
       'council_metrics_user_started_idx',
       'council_proposals_user_status_expires_idx',
       'council_memory_summaries_user_created_idx',

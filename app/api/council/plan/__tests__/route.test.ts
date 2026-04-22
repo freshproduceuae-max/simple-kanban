@@ -3,9 +3,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const getAuthedUserId = vi.fn();
 const runCouncilTurnMock = vi.fn();
 const proposalCreateMock = vi.fn();
+const startSession = vi.fn();
+const writeSummary = vi.fn();
+const endSession = vi.fn();
+const findResumableSession = vi.fn();
+const REAL_UUID = 'cccccccc-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
   getAuthedUserId: () => getAuthedUserId(),
+  getAuthedIdentity: async () => ({
+    userId: await getAuthedUserId(),
+    authSessionId: 'auth-1',
+  }),
 }));
 vi.mock('@/lib/council/server/dispatch', () => ({
   runCouncilTurn: (...a: unknown[]) => runCouncilTurnMock(...a),
@@ -13,6 +22,21 @@ vi.mock('@/lib/council/server/dispatch', () => ({
 vi.mock('@/lib/persistence/server', () => ({
   getProposalRepository: () => ({
     create: (...a: unknown[]) => proposalCreateMock(...a),
+  }),
+  getSessionRepository: () => ({
+    startSession: (...a: unknown[]) => startSession(...a),
+    endSession: (...a: unknown[]) => endSession(...a),
+    appendTurn: vi.fn(),
+    listSessionsForUser: vi.fn(),
+    listTurns: vi.fn(),
+    findResumableSession: (...a: unknown[]) => findResumableSession(...a),
+    finalizeStaleSessionsForUser: vi.fn(async () => []),
+  }),
+  getCouncilMemoryRepository: () => ({
+    writeSummary: (...a: unknown[]) => writeSummary(...a),
+    listSummariesForUser: vi.fn(async () => []),
+    writeRecall: vi.fn(),
+    listRecallsForTurn: vi.fn(),
   }),
 }));
 
@@ -52,9 +76,35 @@ describe('POST /api/council/plan', () => {
     getAuthedUserId.mockReset();
     runCouncilTurnMock.mockReset();
     proposalCreateMock.mockReset();
+    startSession.mockReset();
+    writeSummary.mockReset();
+    endSession.mockReset();
+    findResumableSession.mockReset();
+    findResumableSession.mockImplementation(
+      async ({ sessionId }: { sessionId: string }) => ({
+        id: sessionId,
+        user_id: 'u1',
+        mode: 'plan',
+        auth_session_id: 'auth-1',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      }),
+    );
     __resetSessionCacheForTests();
     getAuthedUserId.mockResolvedValue('u1');
     runCouncilTurnMock.mockResolvedValue(fakeTurn());
+    startSession.mockResolvedValue({
+      id: REAL_UUID,
+      user_id: 'u1',
+      mode: 'plan',
+      auth_session_id: 'auth-1',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
+    writeSummary.mockResolvedValue({});
+    endSession.mockResolvedValue(undefined);
     proposalCreateMock.mockImplementation(async () => ({
       id: `p-${proposalCreateMock.mock.calls.length}`,
       user_id: 'u1',
@@ -123,21 +173,19 @@ describe('POST /api/council/plan', () => {
     expect(Array.isArray(trailer.proposals)).toBe(true);
   });
 
-  it('passes session_id: null to proposal.create (F18 bridge — no council_sessions row exists yet)', async () => {
+  it('passes the real sessionId UUID to proposal.create now that F18 has landed', async () => {
+    const clientId = 'dddddddd-1111-4222-8333-444444444444';
     runCouncilTurnMock.mockResolvedValueOnce(
       fakeTurn({
         finalText: '```json-plan\n{"tasks":["t"]}\n```',
       }),
     );
-    await planRoute(
-      req({ sessionId: 'client-synthetic-abc', userInput: 'plan' }),
-    ).then((r) => r.text());
+    await planRoute(req({ sessionId: clientId, userInput: 'plan' })).then(
+      (r) => r.text(),
+    );
     expect(proposalCreateMock).toHaveBeenCalledTimes(1);
     const arg = proposalCreateMock.mock.calls[0][0];
-    expect(arg.session_id).toBeNull();
-    // The synthetic sessionId still rides the response header for
-    // client-side conversation stitching; it just doesn't reach the
-    // FK column.
+    expect(arg.session_id).toBe(clientId);
   });
 
   it('creates one proposal per drafted task via the proposal repo', async () => {
@@ -200,8 +248,10 @@ describe('POST /api/council/plan', () => {
     expect(trailer.proposals).toEqual(['p1', 'p3']);
   });
 
-  it('honors a client-provided sessionId', async () => {
-    await planRoute(req({ sessionId: 'client-xyz', userInput: 'plan' }));
-    expect(runCouncilTurnMock.mock.calls[0][0].sessionId).toBe('client-xyz');
+  it('honors a client-provided UUID sessionId', async () => {
+    const clientId = 'eeeeeeee-1111-4222-8333-444444444444';
+    await planRoute(req({ sessionId: clientId, userInput: 'plan' }));
+    expect(runCouncilTurnMock.mock.calls[0][0].sessionId).toBe(clientId);
+    expect(startSession).not.toHaveBeenCalled();
   });
 });
