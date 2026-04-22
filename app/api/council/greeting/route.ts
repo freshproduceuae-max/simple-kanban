@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUserId } from '@/lib/auth/current-user';
+
+// Pin to the Node runtime: the Anthropic SDK is Node-only. Greeting
+// is the lightest turn (no live web, no Critic), but it still
+// streams Consolidator tokens — 60s is plenty and matches the other
+// Council routes for consistency.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 import { getTaskRepository } from '@/lib/persistence/server';
 import {
   composeFullGreeting,

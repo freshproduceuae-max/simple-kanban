@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUserId } from '@/lib/auth/current-user';
+
+// Pin to the Node runtime: the Anthropic SDK is Node-only. Advise
+// runs the Critic only on the fast-path risk threshold, so it's
+// usually faster than Plan — same 60s ceiling for headroom when
+// the board snapshot is large.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';

@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUserId } from '@/lib/auth/current-user';
+
+// Pin to the Node runtime: the Anthropic SDK is Node-only (Buffer,
+// node:stream). Edge would silently break streaming at deploy time.
+export const runtime = 'nodejs';
+// Vercel's default function timeout (10s on Hobby, 15s on Pro) is
+// shorter than a warm Council turn under Researcher + Consolidator.
+// 60s covers the 95th-percentile turn while staying inside every
+// Vercel plan's ceiling.
+export const maxDuration = 60;
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';

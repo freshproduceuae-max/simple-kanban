@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUserId } from '@/lib/auth/current-user';
+
+// Pin to the Node runtime: the Anthropic SDK is Node-only. Plan mode
+// also runs the Critic unconditionally, which pushes turn latency up
+// further than Chat — 60s is the Vercel ceiling we can rely on
+// across Hobby and Pro.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
