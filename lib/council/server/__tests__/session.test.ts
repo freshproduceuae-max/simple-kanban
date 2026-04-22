@@ -22,13 +22,23 @@ function makeSessionRepo(): {
   startSession: ReturnType<typeof vi.fn>;
   endSession: ReturnType<typeof vi.fn>;
   findResumableSession: ReturnType<typeof vi.fn>;
+  finalizeStaleSessionsForUser: ReturnType<typeof vi.fn>;
 } {
   const startSession = vi.fn(
-    async ({ userId, mode }: { userId: string; mode: CouncilMode }) => {
+    async ({
+      userId,
+      mode,
+      authSessionId,
+    }: {
+      userId: string;
+      mode: CouncilMode;
+      authSessionId: string;
+    }) => {
       return {
         id: REAL_UUID_A,
         user_id: userId,
         mode,
+        auth_session_id: authSessionId,
         started_at: new Date().toISOString(),
         ended_at: null,
         summary_written_at: null,
@@ -40,6 +50,7 @@ function makeSessionRepo(): {
   // simulate "shelf echoes a real id that's still live" override via
   // mockResolvedValueOnce.
   const findResumableSession = vi.fn(async () => null);
+  const finalizeStaleSessionsForUser = vi.fn(async () => []);
   const repo: SessionRepository = {
     startSession,
     endSession,
@@ -51,8 +62,15 @@ function makeSessionRepo(): {
     listSessionsForUser: vi.fn(async () => []),
     listTurns: vi.fn(async () => []),
     findResumableSession,
+    finalizeStaleSessionsForUser,
   };
-  return { repo, startSession, endSession, findResumableSession };
+  return {
+    repo,
+    startSession,
+    endSession,
+    findResumableSession,
+    finalizeStaleSessionsForUser,
+  };
 }
 
 function makeMemoryRepo(): {
@@ -98,7 +116,11 @@ describe('resolveSessionId — F18 DB-backed', () => {
     });
     expect(id).toBe(REAL_UUID_A);
     expect(startSession).toHaveBeenCalledTimes(1);
-    expect(startSession).toHaveBeenCalledWith({ userId: 'u1', mode: 'chat' });
+    expect(startSession).toHaveBeenCalledWith({
+      userId: 'u1',
+      mode: 'chat',
+      authSessionId: 'auth-1',
+    });
 
     // Second call within the idle window reuses the cached id — no new
     // DB insert.
@@ -122,6 +144,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       id: REAL_UUID_A,
       user_id: 'u1',
       mode: 'chat',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,
@@ -143,6 +166,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       id: REAL_UUID_B,
       user_id: 'u1',
       mode: 'chat',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,
@@ -180,6 +204,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       id: REAL_UUID_A,
       user_id: 'u1',
       mode: 'chat',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,
@@ -188,6 +213,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       id: REAL_UUID_B,
       user_id: 'u2',
       mode: 'chat',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,
@@ -253,6 +279,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       id: REAL_UUID_A,
       user_id: 'u1',
       mode: 'chat',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,
@@ -270,6 +297,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       expect.objectContaining({
         sessionId: REAL_UUID_A,
         userId: 'u1',
+        authSessionId: 'auth-1',
         idleCutoffIso: expect.any(String),
       }),
     );
@@ -285,6 +313,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
       id: REAL_UUID_B,
       user_id: 'u1',
       mode: 'chat',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,
@@ -347,6 +376,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
         id: REAL_UUID_A,
         user_id: 'u1',
         mode: 'chat',
+        auth_session_id: 'auth-A',
         started_at: new Date().toISOString(),
         ended_at: null,
         summary_written_at: null,
@@ -355,6 +385,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
         id: REAL_UUID_B,
         user_id: 'u1',
         mode: 'chat',
+        auth_session_id: 'auth-B',
         started_at: new Date().toISOString(),
         ended_at: null,
         summary_written_at: null,
@@ -379,6 +410,154 @@ describe('resolveSessionId — F18 DB-backed', () => {
     expect(first).toBe(REAL_UUID_A);
     expect(second).toBe(REAL_UUID_B);
     expect(startSession).toHaveBeenCalledTimes(2);
+    expect(startSession).toHaveBeenNthCalledWith(2, {
+      userId: 'u1',
+      mode: 'chat',
+      authSessionId: 'auth-B',
+    });
+  });
+
+  it('rejects an echoed UUID across auth sessions — the DB filter drops it and we start fresh', async () => {
+    // Round-3 P1: even though the shelf echoes a live UUID from the
+    // prior login, `findResumableSession` filters on auth_session_id
+    // and returns null for the new auth fingerprint. The resolver
+    // must drop the id and start a fresh `council_sessions` row
+    // rather than cache the stale one.
+    const { repo, startSession, findResumableSession } = makeSessionRepo();
+    const { repo: memoryRepo } = makeMemoryRepo();
+    findResumableSession.mockResolvedValueOnce(null); // DB filter drops it
+    startSession.mockResolvedValueOnce({
+      id: REAL_UUID_B,
+      user_id: 'u1',
+      mode: 'chat',
+      auth_session_id: 'auth-B',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
+    const got = await resolveSessionId({
+      userId: 'u1',
+      authSessionId: 'auth-B',
+      clientProvided: REAL_UUID_A, // id from a prior auth session
+      mode: 'chat',
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    expect(got).toBe(REAL_UUID_B);
+    expect(findResumableSession).toHaveBeenCalledWith(
+      expect.objectContaining({ authSessionId: 'auth-B' }),
+    );
+    expect(startSession).toHaveBeenCalledWith({
+      userId: 'u1',
+      mode: 'chat',
+      authSessionId: 'auth-B',
+    });
+  });
+
+  it('finalizes orphaned prior-auth rows when a fresh auth-session slot opens', async () => {
+    // Round-3 P2: when a new (userId, authSessionId) cache slot is
+    // minted (cache miss), ask the DB to close every still-open row
+    // owned by this user under a different auth fingerprint and
+    // summarize each one. This covers the case where the prior
+    // auth-session entry lives on a now-cold serverless instance
+    // (or was never seen by any instance that's still warm) and
+    // would otherwise stay `ended_at IS NULL` forever.
+    const staleRow = {
+      id: REAL_UUID_A,
+      user_id: 'u1',
+      mode: 'chat' as const,
+      auth_session_id: 'auth-A',
+      started_at: new Date().toISOString(),
+      ended_at: '2026-04-22T00:00:00Z',
+      summary_written_at: null,
+    };
+    const {
+      repo,
+      startSession,
+      finalizeStaleSessionsForUser,
+    } = makeSessionRepo();
+    const { repo: memoryRepo, writeSummary } = makeMemoryRepo();
+    finalizeStaleSessionsForUser.mockResolvedValueOnce([staleRow]);
+    startSession.mockResolvedValueOnce({
+      id: REAL_UUID_B,
+      user_id: 'u1',
+      mode: 'chat',
+      auth_session_id: 'auth-B',
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      summary_written_at: null,
+    });
+    const got = await resolveSessionId({
+      userId: 'u1',
+      authSessionId: 'auth-B',
+      mode: 'chat',
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    expect(got).toBe(REAL_UUID_B);
+    expect(finalizeStaleSessionsForUser).toHaveBeenCalledWith({
+      userId: 'u1',
+      authSessionId: 'auth-B',
+    });
+    // Fire-and-forget — let the microtask queue drain.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writeSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: 'u1',
+        session_id: REAL_UUID_A,
+        kind: 'session-end',
+      }),
+    );
+  });
+
+  it('does not call finalizeStaleSessionsForUser on an idle-window rollover (same auth session)', async () => {
+    // Same (userId, authSessionId) slot — the old session is
+    // finalized via the in-memory `existing` path, not via the
+    // cross-auth DB sweep. That sweep is only for the case where the
+    // auth fingerprint changed.
+    const { repo, startSession, finalizeStaleSessionsForUser } =
+      makeSessionRepo();
+    const { repo: memoryRepo } = makeMemoryRepo();
+    startSession
+      .mockResolvedValueOnce({
+        id: REAL_UUID_A,
+        user_id: 'u1',
+        mode: 'chat',
+        auth_session_id: 'auth-1',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      })
+      .mockResolvedValueOnce({
+        id: REAL_UUID_B,
+        user_id: 'u1',
+        mode: 'chat',
+        auth_session_id: 'auth-1',
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        summary_written_at: null,
+      });
+    const t0 = 1_000_000;
+    await resolveSessionId({
+      userId: 'u1',
+      authSessionId: 'auth-1',
+      mode: 'chat',
+      now: t0,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    expect(finalizeStaleSessionsForUser).toHaveBeenCalledTimes(1); // first call opens the slot
+    await resolveSessionId({
+      userId: 'u1',
+      authSessionId: 'auth-1',
+      mode: 'chat',
+      now: t0 + SESSION_IDLE_WINDOW_MS + 1,
+      sessionRepo: repo,
+      memoryRepo,
+    });
+    // Second call stays in the same slot (existing entry present) —
+    // no new sweep.
+    expect(finalizeStaleSessionsForUser).toHaveBeenCalledTimes(1);
   });
 
   it('swallows finalize errors so an idle-rollover never fails the new turn', async () => {
@@ -391,6 +570,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
         id: REAL_UUID_A,
         user_id: 'u1',
         mode: 'chat',
+        auth_session_id: 'auth-1',
         started_at: new Date().toISOString(),
         ended_at: null,
         summary_written_at: null,
@@ -399,6 +579,7 @@ describe('resolveSessionId — F18 DB-backed', () => {
         id: REAL_UUID_B,
         user_id: 'u1',
         mode: 'chat',
+        auth_session_id: 'auth-1',
         started_at: new Date().toISOString(),
         ended_at: null,
         summary_written_at: null,

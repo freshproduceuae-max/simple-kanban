@@ -28,6 +28,13 @@ export interface CouncilSessionRow {
   id: string;
   user_id: string;
   mode: CouncilMode;
+  /**
+   * Fingerprint of the Supabase auth session that opened this row —
+   * see `getAuthedIdentity`. Nullable because pre-migration-011 rows
+   * don't carry one; those rows never match a `findResumableSession`
+   * lookup and get finalized on the next request.
+   */
+  auth_session_id: string | null;
   started_at: string;
   ended_at: string | null;
   summary_written_at: string | null;

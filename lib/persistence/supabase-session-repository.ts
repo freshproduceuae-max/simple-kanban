@@ -35,10 +35,15 @@ export class SupabaseSessionRepository implements SessionRepository {
   async startSession(input: {
     userId: string;
     mode: CouncilMode;
+    authSessionId: string;
   }): Promise<CouncilSessionRow> {
     const { data, error } = await this.client
       .from('council_sessions')
-      .insert({ user_id: input.userId, mode: input.mode })
+      .insert({
+        user_id: input.userId,
+        mode: input.mode,
+        auth_session_id: input.authSessionId,
+      })
       .select('*')
       .single();
     if (error) throw new Error(`SessionRepository.startSession: ${error.message}`);
@@ -104,14 +109,21 @@ export class SupabaseSessionRepository implements SessionRepository {
   async findResumableSession(input: {
     sessionId: string;
     userId: string;
+    authSessionId: string;
     idleCutoffIso: string;
   }): Promise<CouncilSessionRow | null> {
-    // 1) Session must exist, be owned, and still be open.
+    // 1) Session must exist, be owned, still be open, and belong to
+    // the caller's current Supabase auth session. The auth filter is
+    // what enforces the PRD rule "sign-out ends the session" even
+    // when the client echoes a stale shelf sessionId across a new
+    // login — pre-migration-011 rows (auth_session_id IS NULL) also
+    // fall out here because `.eq` rejects nulls.
     const { data: session, error: sErr } = await this.client
       .from('council_sessions')
       .select('*')
       .eq('id', input.sessionId)
       .eq('user_id', input.userId)
+      .eq('auth_session_id', input.authSessionId)
       .is('ended_at', null)
       .maybeSingle();
     if (sErr)
@@ -146,6 +158,32 @@ export class SupabaseSessionRepository implements SessionRepository {
     if (Number.isNaN(lastActivityMs) || Number.isNaN(cutoffMs)) return null;
     if (lastActivityMs < cutoffMs) return null;
     return row;
+  }
+
+  async finalizeStaleSessionsForUser(input: {
+    userId: string;
+    authSessionId: string;
+  }): Promise<CouncilSessionRow[]> {
+    // Close every still-open session for this user whose
+    // auth_session_id differs from the caller's current fingerprint.
+    // `neq` in PostgREST excludes NULLs, so pre-migration-011 rows
+    // (which have a NULL fingerprint) are matched via an explicit
+    // `or(auth_session_id.is.null, auth_session_id.neq.<current>)`.
+    const nowIso = new Date().toISOString();
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .update({ ended_at: nowIso })
+      .eq('user_id', input.userId)
+      .is('ended_at', null)
+      .or(
+        `auth_session_id.is.null,auth_session_id.neq.${input.authSessionId}`,
+      )
+      .select('*');
+    if (error)
+      throw new Error(
+        `SessionRepository.finalizeStaleSessionsForUser: ${error.message}`,
+      );
+    return (data ?? []) as CouncilSessionRow[];
   }
 
   async listTurns(sessionId: string): Promise<CouncilTurnRow[]> {

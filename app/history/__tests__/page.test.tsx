@@ -38,6 +38,7 @@ function sessionRow(overrides: Partial<CouncilSessionRow> = {}): CouncilSessionR
     id: 'session-1',
     user_id: 'u1',
     mode: 'chat',
+    auth_session_id: 'auth-1',
     started_at: '2026-04-21T12:00:00Z',
     ended_at: '2026-04-21T12:10:00Z',
     summary_written_at: null,

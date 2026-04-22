@@ -30,6 +30,7 @@ vi.mock('@/lib/persistence/server', () => ({
     listSessionsForUser: vi.fn(),
     listTurns: vi.fn(),
     findResumableSession: (...a: unknown[]) => findResumableSession(...a),
+    finalizeStaleSessionsForUser: vi.fn(async () => []),
   }),
   getCouncilMemoryRepository: () => ({
     writeSummary: (...a: unknown[]) => writeSummary(...a),
@@ -84,6 +85,7 @@ describe('POST /api/council/plan', () => {
         id: sessionId,
         user_id: 'u1',
         mode: 'plan',
+        auth_session_id: 'auth-1',
         started_at: new Date().toISOString(),
         ended_at: null,
         summary_written_at: null,
@@ -96,6 +98,7 @@ describe('POST /api/council/plan', () => {
       id: REAL_UUID,
       user_id: 'u1',
       mode: 'plan',
+      auth_session_id: 'auth-1',
       started_at: new Date().toISOString(),
       ended_at: null,
       summary_written_at: null,

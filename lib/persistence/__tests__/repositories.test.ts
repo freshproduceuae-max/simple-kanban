@@ -19,7 +19,9 @@ describe('persistence repositories (stubs)', () => {
   });
   it('SessionRepository stub throws with feature-id hint', async () => {
     const repo = new SessionRepositoryNotImplemented();
-    await expect(repo.startSession({ userId: 'u1', mode: 'chat' })).rejects.toThrow(/F18/);
+    await expect(
+      repo.startSession({ userId: 'u1', mode: 'chat', authSessionId: 'auth-1' }),
+    ).rejects.toThrow(/F18/);
   });
   it('ProposalRepository stub throws with feature-id hint', async () => {
     const repo = new ProposalRepositoryNotImplemented();

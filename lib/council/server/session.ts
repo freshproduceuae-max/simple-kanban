@@ -132,6 +132,7 @@ export async function resolveSessionId(
       const row = await input.sessionRepo.findResumableSession({
         sessionId: trimmed,
         userId: input.userId,
+        authSessionId: input.authSessionId,
         idleCutoffIso,
       });
       if (row) {
@@ -173,11 +174,29 @@ export async function resolveSessionId(
         log,
       },
     );
+  } else {
+    // No in-memory entry for this (userId, authSessionId) slot. Two
+    // reasons this can happen: (a) genuinely first turn for this user
+    // on this instance, (b) sign-out + re-sign-in — a prior auth
+    // session's cache entry is orphaned in another (now cold) slot,
+    // or was never on this serverless instance to begin with. Ask the
+    // DB to close every open row owned by this user under a different
+    // auth fingerprint and summarize each so the history view and the
+    // Researcher's memory both see a clean hand-off.
+    void finalizeStaleAuthSessions(
+      { userId: input.userId, authSessionId: input.authSessionId },
+      {
+        sessionRepo: input.sessionRepo,
+        memoryRepo: input.memoryRepo,
+        log,
+      },
+    );
   }
 
   const row = await input.sessionRepo.startSession({
     userId: input.userId,
     mode: input.mode,
+    authSessionId: input.authSessionId,
   });
   sessionByIdentity.set(key, {
     sessionId: row.id,
@@ -223,5 +242,52 @@ async function finalizeSession(
     });
   } catch (err) {
     deps.log('session: writeSummary failed (swallowed)', err);
+  }
+}
+
+/**
+ * Cold-path cross-auth-session finalizer. Runs when a request lands
+ * under a (userId, authSessionId) pair the cache has never seen — so
+ * either it's the first turn on this instance, or the user just
+ * signed out and back in. Asks the DB to end every still-open row
+ * owned by this user under a different auth fingerprint (including
+ * pre-migration-011 rows whose fingerprint is NULL) and writes a
+ * `session-end` summary per row. Errors are swallowed — finalization
+ * is background work that must not fail the incoming turn.
+ */
+async function finalizeStaleAuthSessions(
+  args: { userId: string; authSessionId: string },
+  deps: {
+    sessionRepo: SessionRepository;
+    memoryRepo: CouncilMemoryRepository;
+    log: (msg: string, err: unknown) => void;
+  },
+): Promise<void> {
+  let stale: Awaited<
+    ReturnType<SessionRepository['finalizeStaleSessionsForUser']>
+  > = [];
+  try {
+    stale = await deps.sessionRepo.finalizeStaleSessionsForUser({
+      userId: args.userId,
+      authSessionId: args.authSessionId,
+    });
+  } catch (err) {
+    deps.log(
+      'session: finalizeStaleSessionsForUser failed (swallowed)',
+      err,
+    );
+    return;
+  }
+  for (const row of stale) {
+    try {
+      await deps.memoryRepo.writeSummary({
+        user_id: args.userId,
+        session_id: row.id,
+        kind: 'session-end',
+        content: `Session closed on sign-out. Mode: ${row.mode}.`,
+      });
+    } catch (err) {
+      deps.log('session: writeSummary failed (swallowed)', err);
+    }
   }
 }

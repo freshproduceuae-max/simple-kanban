@@ -164,6 +164,7 @@ describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, 
     const expectedIndexes = [
       'council_turns_session_created_idx',
       'council_sessions_user_started_idx',
+      'council_sessions_user_auth_live_idx',
       'council_metrics_user_started_idx',
       'council_proposals_user_status_expires_idx',
       'council_memory_summaries_user_created_idx',

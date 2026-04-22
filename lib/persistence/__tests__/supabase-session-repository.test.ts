@@ -21,6 +21,7 @@ function chain<T>(result: Result<T>) {
     'eq',
     'lt',
     'is',
+    'or',
     'order',
     'limit',
   ] as const;
@@ -36,6 +37,7 @@ function chain<T>(result: Result<T>) {
     eq: ReturnType<typeof vi.fn>;
     lt: ReturnType<typeof vi.fn>;
     is: ReturnType<typeof vi.fn>;
+    or: ReturnType<typeof vi.fn>;
     order: ReturnType<typeof vi.fn>;
     limit: ReturnType<typeof vi.fn>;
     single: ReturnType<typeof vi.fn>;
@@ -47,6 +49,7 @@ const sessionRow: CouncilSessionRow = {
   id: 'session-1',
   user_id: 'u1',
   mode: 'chat',
+  auth_session_id: 'auth-1',
   started_at: '2026-04-21T00:00:00Z',
   ended_at: null,
   summary_written_at: null,
@@ -77,11 +80,16 @@ describe('SupabaseSessionRepository (F18)', () => {
     fromSpy.mockReturnValue(builder);
     const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
 
-    const got = await repo.startSession({ userId: 'u1', mode: 'chat' });
+    const got = await repo.startSession({
+      userId: 'u1',
+      mode: 'chat',
+      authSessionId: 'auth-1',
+    });
     expect(fromSpy).toHaveBeenCalledWith('council_sessions');
     expect(builder.insert).toHaveBeenCalledWith({
       user_id: 'u1',
       mode: 'chat',
+      auth_session_id: 'auth-1',
     });
     expect(got.id).toBe('session-1');
   });
@@ -169,12 +177,14 @@ describe('SupabaseSessionRepository (F18)', () => {
       const got = await repo.findResumableSession({
         sessionId: 'session-1',
         userId: 'u1',
+        authSessionId: 'auth-1',
         idleCutoffIso: '2026-04-21T00:00:00Z',
       });
       expect(got).toBeNull();
-      // Filters applied: id, user_id, ended_at IS NULL.
+      // Filters applied: id, user_id, auth_session_id, ended_at IS NULL.
       expect(builder.eq).toHaveBeenCalledWith('id', 'session-1');
       expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.eq).toHaveBeenCalledWith('auth_session_id', 'auth-1');
       expect(builder.is).toHaveBeenCalledWith('ended_at', null);
     });
 
@@ -198,6 +208,7 @@ describe('SupabaseSessionRepository (F18)', () => {
       const got = await repo.findResumableSession({
         sessionId: 'session-1',
         userId: 'u1',
+        authSessionId: 'auth-1',
         idleCutoffIso: '2026-04-21T00:00:00Z',
       });
       expect(got).toBeNull();
@@ -219,6 +230,7 @@ describe('SupabaseSessionRepository (F18)', () => {
       const got = await repo.findResumableSession({
         sessionId: 'session-1',
         userId: 'u1',
+        authSessionId: 'auth-1',
         idleCutoffIso: '2026-04-21T00:00:00Z',
       });
       expect(got?.id).toBe('session-1');
@@ -243,6 +255,7 @@ describe('SupabaseSessionRepository (F18)', () => {
       const got = await repo.findResumableSession({
         sessionId: 'session-1',
         userId: 'u1',
+        authSessionId: 'auth-1',
         idleCutoffIso: '2026-04-21T00:00:00.100Z',
       });
       expect(got?.id).toBe('session-1');
@@ -264,6 +277,7 @@ describe('SupabaseSessionRepository (F18)', () => {
       const got = await repo.findResumableSession({
         sessionId: 'session-1',
         userId: 'u1',
+        authSessionId: 'auth-1',
         idleCutoffIso: '2026-04-20T23:59:59Z',
       });
       expect(got?.id).toBe('session-1');
@@ -278,7 +292,56 @@ describe('SupabaseSessionRepository (F18)', () => {
     fromSpy.mockReturnValue(builder);
     const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
     await expect(
-      repo.startSession({ userId: 'u1', mode: 'chat' }),
+      repo.startSession({ userId: 'u1', mode: 'chat', authSessionId: 'auth-1' }),
     ).rejects.toThrow(/SessionRepository\.startSession: boom/);
+  });
+
+  describe('finalizeStaleSessionsForUser', () => {
+    it('filters by user_id, live rows, auth_session_id mismatch; returns rows', async () => {
+      const otherRow: CouncilSessionRow = {
+        ...sessionRow,
+        id: 'session-2',
+        auth_session_id: 'auth-OLD',
+      };
+      const builder = chain<CouncilSessionRow[]>({
+        data: [otherRow],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const rows = await repo.finalizeStaleSessionsForUser({
+        userId: 'u1',
+        authSessionId: 'auth-NEW',
+      });
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ ended_at: expect.any(String) }),
+      );
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.is).toHaveBeenCalledWith('ended_at', null);
+      // NULL-safe mismatch: exclude the caller's current fingerprint
+      // AND include pre-migration-011 rows whose fingerprint is NULL.
+      expect(builder.or).toHaveBeenCalledWith(
+        'auth_session_id.is.null,auth_session_id.neq.auth-NEW',
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe('session-2');
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<CouncilSessionRow[]>({
+        data: null as unknown as CouncilSessionRow[],
+        error: { message: 'boom' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.finalizeStaleSessionsForUser({
+          userId: 'u1',
+          authSessionId: 'auth-NEW',
+        }),
+      ).rejects.toThrow(/finalizeStaleSessionsForUser: boom/);
+    });
   });
 });
