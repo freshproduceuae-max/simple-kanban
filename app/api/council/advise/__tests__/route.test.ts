@@ -38,6 +38,11 @@ vi.mock('@/lib/persistence/server', () => ({
     writeRecall: vi.fn(),
     listRecallsForTurn: vi.fn(),
   }),
+  getMetricsRepository: () => ({
+    record: vi.fn(async () => {}),
+    listForUser: vi.fn(async () => []),
+    dailyTokenTotalForUser: vi.fn(async () => 0),
+  }),
 }));
 
 import { POST as adviseRoute } from '../route';

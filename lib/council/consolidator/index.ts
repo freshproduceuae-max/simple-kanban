@@ -1,8 +1,10 @@
 import type { CouncilMode } from '@/lib/persistence/types';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import type { CouncilMemoryRepository } from '@/lib/persistence/council-memory-repository';
+import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import { COUNCIL_VOICE_STYLEBOOK } from '../shared/voice';
+import { classifyOutcome, recordMetric } from '../shared/instrument';
 
 /**
  * F10 — Consolidator agent.
@@ -32,6 +34,14 @@ export type ConsolidatorDeps = {
   client?: AnthropicLike;
   sessionRepo: SessionRepository;
   memoryRepo: CouncilMemoryRepository;
+  /** F21 — optional metrics repo for per-call observability. */
+  metricsRepo?: MetricsRepository;
+  /** F20 — optional error hook; dispatch wires this to the Resend pipeline. */
+  errorHook?: (info: {
+    failureClass: 'anthropic_error' | 'anthropic_429' | 'unknown';
+    message: string;
+    cause?: unknown;
+  }) => void;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -170,6 +180,8 @@ export async function consolidate(
   // One retry, then surface the failure sentence. The retry wraps the
   // stream *acquisition*, not the streaming itself (a mid-stream error
   // is surfaced as failure directly — can't cleanly resume).
+  const callStartedAt = new Date().toISOString();
+  const startMs = Date.now();
   let stream: AsyncIterable<StreamEvent>;
   try {
     stream = await attemptStream(client, system, input.userInput);
@@ -179,7 +191,16 @@ export async function consolidate(
       stream = await attemptStream(client, system, input.userInput);
     } catch (secondErr) {
       log('consolidator: attempt 2 failed, surfacing', secondErr);
-      return failStream(deps, input, mode);
+      if (deps.errorHook) {
+        const message = secondErr instanceof Error ? secondErr.message : String(secondErr);
+        const failureClass = /429|rate/i.test(message)
+          ? 'anthropic_429'
+          : /anthropic|claude|overloaded|\b5\d\d\b/i.test(message)
+            ? 'anthropic_error'
+            : 'unknown';
+        deps.errorHook({ failureClass, message, cause: secondErr });
+      }
+      return failStream(deps, input, mode, { callStartedAt, startMs, err: secondErr });
     }
   }
 
@@ -189,6 +210,8 @@ export async function consolidate(
   const chunks: string[] = [];
   let tokensIn = 0;
   let tokensOut = 0;
+  let firstTokenMs: number | null = null;
+  let streamErr: unknown = null;
 
   // Single emit point for every text fragment the consumer will see.
   // Keeping this as the ONLY way to produce an output token guarantees
@@ -197,6 +220,7 @@ export async function consolidate(
   // and resolves `done` with the same text, so any consumer of `done`
   // (critic, metrics, session log) sees exactly what the user saw.
   const emit = (text: string): string => {
+    if (firstTokenMs === null) firstTokenMs = Date.now() - startMs;
     chunks.push(text);
     return text;
   };
@@ -229,6 +253,7 @@ export async function consolidate(
           }
         }
       } catch (err) {
+        streamErr = err;
         log('consolidator: mid-stream error', err);
         // Recovery tokens must also go through emit() so the persisted
         // reply matches the rendered reply.
@@ -271,6 +296,22 @@ export async function consolidate(
       tokensIn,
       tokensOut,
     });
+    if (deps.metricsRepo) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          agent: 'consolidator',
+          callStartedAt,
+          firstTokenMs,
+          fullReplyMs: Date.now() - startMs,
+          tokensIn,
+          tokensOut,
+          outcome: streamErr ? classifyOutcome(streamErr) : 'ok',
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
     resolveDone({ text, tokensIn, tokensOut, mode });
   };
 
@@ -295,8 +336,10 @@ export async function consolidate(
 function failStream(
   deps: ConsolidatorDeps,
   input: ConsolidatorInput,
-  mode: CouncilMode
+  mode: CouncilMode,
+  metric?: { callStartedAt: string; startMs: number; err: unknown },
 ): ConsolidatorResult {
+  const log = deps.log ?? ((msg, err) => console.error(msg, err));
   const stream: AsyncIterable<string> = {
     async *[Symbol.asyncIterator]() {
       yield CONSOLIDATOR_FAIL_SENTENCE;
@@ -311,6 +354,22 @@ function failStream(
       tokensIn: 0,
       tokensOut: 0,
     });
+    if (deps.metricsRepo && metric) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          agent: 'consolidator',
+          callStartedAt: metric.callStartedAt,
+          firstTokenMs: null,
+          fullReplyMs: Date.now() - metric.startMs,
+          tokensIn: 0,
+          tokensOut: 0,
+          outcome: classifyOutcome(metric.err),
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
     return { text: CONSOLIDATOR_FAIL_SENTENCE, tokensIn: 0, tokensOut: 0, mode };
   })();
   return { stream, done };

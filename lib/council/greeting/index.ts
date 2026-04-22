@@ -1,7 +1,11 @@
 import type { TaskRow } from '@/lib/persistence/types';
 import type { CouncilMemoryRepository } from '@/lib/persistence/council-memory-repository';
+import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
+import type { SessionRepository } from '@/lib/persistence/session-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import { COUNCIL_VOICE_STYLEBOOK } from '../shared/voice';
+import { classifyOutcome, recordMetric } from '../shared/instrument';
+import { checkBudget } from '../shared/budget-check';
 
 /**
  * F14 — Morning greeting composer.
@@ -60,6 +64,10 @@ export type ComposeGreetingInput = {
 export type ComposeGreetingDeps = {
   client?: AnthropicLike;
   memoryRepo: CouncilMemoryRepository;
+  /** F21 — optional metrics repo for per-call observability. */
+  metricsRepo?: MetricsRepository;
+  /** F22 — optional session repo; required alongside metricsRepo for budget check. */
+  sessionRepo?: SessionRepository;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -209,8 +217,46 @@ export async function composeFullGreeting(
     log('greeting: memory read unavailable, degrading to no-summaries', err);
   }
 
+  // F22 — daily-cap pre-flight. Greeting has no session yet, so the
+  // per-session ceiling is skipped; only the daily cap applies. A 'cut'
+  // verdict replaces the greeting with the calm cap sentence; 'warn'
+  // simply proceeds (the greeting's 200-char cap leaves no room for a
+  // banner, so we intentionally swallow the warn signal here).
+  if (deps.metricsRepo && deps.sessionRepo) {
+    try {
+      const budget = await checkBudget(
+        { userId: input.userId, sessionId: null, mode: 'greeting' },
+        {
+          sessionRepo: deps.sessionRepo,
+          metricsRepo: deps.metricsRepo,
+          log,
+        },
+      );
+      if (budget.verdict === 'cut' && budget.cutSentence) {
+        const sentence = budget.cutSentence;
+        const stream: AsyncIterable<string> = {
+          async *[Symbol.asyncIterator]() {
+            yield sentence;
+          },
+        };
+        return {
+          stream,
+          done: Promise.resolve({
+            text: sentence,
+            tokensIn: 0,
+            tokensOut: 0,
+          }),
+        };
+      }
+    } catch (err) {
+      log('greeting: budget check failed, proceeding', err);
+    }
+  }
+
   const system = buildSystemPrompt(input.signals, memorySnippet);
 
+  const callStartedAt = new Date().toISOString();
+  const startMs = Date.now();
   let raw: unknown;
   try {
     raw = await client.messages.create({
@@ -223,6 +269,22 @@ export async function composeFullGreeting(
     });
   } catch (err) {
     log('greeting: stream acquisition failed', err);
+    if (deps.metricsRepo) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: null,
+          agent: 'consolidator',
+          callStartedAt,
+          firstTokenMs: null,
+          fullReplyMs: Date.now() - startMs,
+          tokensIn: 0,
+          tokensOut: 0,
+          outcome: classifyOutcome(err),
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
     return failResult();
   }
 
@@ -230,6 +292,8 @@ export async function composeFullGreeting(
   const chunks: string[] = [];
   let tokensIn = 0;
   let tokensOut = 0;
+  let firstTokenMs: number | null = null;
+  let streamErr: unknown = null;
 
   // Streaming cap state. We enforce the F14 contract (≤ GREETING_MAX_CHARS
   // AND ≤ GREETING_MAX_SENTENCES) on every yielded chunk so the client
@@ -240,6 +304,7 @@ export async function composeFullGreeting(
   let sentenceCount = 0;
   let stopped = false;
   const emit = (text: string): string => {
+    if (firstTokenMs === null) firstTokenMs = Date.now() - startMs;
     chunks.push(text);
     return text;
   };
@@ -305,6 +370,7 @@ export async function composeFullGreeting(
           }
         }
       } catch (err) {
+        streamErr = err;
         log('greeting: mid-stream error', err);
         const fallback = applyCap(' ' + GREETING_FAIL_SENTENCE);
         if (fallback !== null) yield emit(fallback);
@@ -326,6 +392,22 @@ export async function composeFullGreeting(
         if (!finalized) {
           finalized = true;
           const text = capGreeting(chunks.join(''));
+          if (deps.metricsRepo) {
+            void recordMetric(
+              {
+                userId: input.userId,
+                sessionId: null,
+                agent: 'consolidator',
+                callStartedAt,
+                firstTokenMs,
+                fullReplyMs: Date.now() - startMs,
+                tokensIn,
+                tokensOut,
+                outcome: streamErr ? classifyOutcome(streamErr) : 'ok',
+              },
+              { metricsRepo: deps.metricsRepo, log },
+            );
+          }
           resolveDone({ text, tokensIn, tokensOut });
         }
       }

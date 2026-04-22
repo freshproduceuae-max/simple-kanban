@@ -54,6 +54,17 @@ export interface SessionRepository {
     userId: string;
     authSessionId: string;
   }): Promise<CouncilSessionRow[]>;
+  /**
+   * Returns the sum of `tokens_in + tokens_out` across every
+   * `council_turns` row in this session. Used by F22 per-session
+   * budget enforcement: we enforce against the user-visible turn
+   * log (what the user has been charged for in the Council's
+   * thinking-stream sense) rather than `council_metrics`, which is
+   * broader and includes backstage Researcher/Critic rows that
+   * exist even when they were fail-quiet. Returns 0 when the
+   * session has no turns yet (greeting / first turn).
+   */
+  sumSessionTokens(input: { sessionId: string }): Promise<number>;
 }
 
 export class SessionRepositoryNotImplemented implements SessionRepository {
@@ -95,5 +106,8 @@ export class SessionRepositoryNotImplemented implements SessionRepository {
     authSessionId: string;
   }): Promise<CouncilSessionRow[]> {
     throw new Error('SessionRepository: implementation lands with F18');
+  }
+  async sumSessionTokens(_input: { sessionId: string }): Promise<number> {
+    throw new Error('SessionRepository: implementation lands with F22');
   }
 }

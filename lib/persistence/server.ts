@@ -18,10 +18,12 @@ import { SupabaseTaskRepository } from './supabase-task-repository';
 import { SupabaseProposalRepository } from './supabase-proposal-repository';
 import { SupabaseSessionRepository } from './supabase-session-repository';
 import { SupabaseCouncilMemoryRepository } from './supabase-council-memory-repository';
+import { SupabaseMetricsRepository } from './supabase-metrics-repository';
 import type { TaskRepository } from './task-repository';
 import type { ProposalRepository } from './proposal-repository';
 import type { SessionRepository } from './session-repository';
 import type { CouncilMemoryRepository } from './council-memory-repository';
+import type { MetricsRepository } from './metrics-repository';
 
 export function getTaskRepository(): TaskRepository {
   return new SupabaseTaskRepository(createServerClient());
@@ -37,4 +39,8 @@ export function getSessionRepository(): SessionRepository {
 
 export function getCouncilMemoryRepository(): CouncilMemoryRepository {
   return new SupabaseCouncilMemoryRepository(createServerClient());
+}
+
+export function getMetricsRepository(): MetricsRepository {
+  return new SupabaseMetricsRepository(createServerClient());
 }

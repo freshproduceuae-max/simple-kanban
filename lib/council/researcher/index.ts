@@ -1,7 +1,9 @@
 import type { CouncilMode, TaskRow } from '@/lib/persistence/types';
 import type { CouncilMemoryRepository } from '@/lib/persistence/council-memory-repository';
+import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
+import { classifyOutcome, recordMetric } from '../shared/instrument';
 
 /**
  * F09 — Researcher agent.
@@ -44,6 +46,14 @@ export type ResearcherDeps = {
   client?: AnthropicLike;
   sessionRepo: SessionRepository;
   memoryRepo: CouncilMemoryRepository;
+  /** F21 — optional metrics repo for per-call observability. */
+  metricsRepo?: MetricsRepository;
+  /** F20 — optional error hook; dispatch wires this to the Resend pipeline. */
+  errorHook?: (info: {
+    failureClass: 'anthropic_error' | 'anthropic_429' | 'unknown';
+    message: string;
+    cause?: unknown;
+  }) => void;
   /** Optional logger (defaults to console.error on failure path). */
   log?: (msg: string, err: unknown) => void;
 };
@@ -137,6 +147,8 @@ export async function research(
     }
   }
 
+  const callStartedAt = new Date().toISOString();
+  const startMs = Date.now();
   try {
     // Pull recent memory summaries for context. The memory repo is
     // still NotImplemented until F18, but F15/F16/F17 depend on F09
@@ -203,9 +215,51 @@ export async function research(
       log('researcher: turn write failed', writeErr);
     }
 
+    if (deps.metricsRepo) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          agent: 'researcher',
+          callStartedAt,
+          firstTokenMs: null,
+          fullReplyMs: Date.now() - startMs,
+          tokensIn,
+          tokensOut,
+          outcome: 'ok',
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
+
     return { ok: true, text, toolCalls, tokensIn, tokensOut };
   } catch (err) {
     log('researcher: call failed', err);
+    if (deps.errorHook) {
+      const message = err instanceof Error ? err.message : String(err);
+      const failureClass = /429|rate/i.test(message)
+        ? 'anthropic_429'
+        : /anthropic|claude|overloaded|\b5\d\d\b/i.test(message)
+          ? 'anthropic_error'
+          : 'unknown';
+      deps.errorHook({ failureClass, message, cause: err });
+    }
+    if (deps.metricsRepo) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          agent: 'researcher',
+          callStartedAt,
+          firstTokenMs: null,
+          fullReplyMs: Date.now() - startMs,
+          tokensIn: 0,
+          tokensOut: 0,
+          outcome: classifyOutcome(err),
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
     return {
       ok: false,
       text: RESEARCHER_FAIL_SENTENCE,

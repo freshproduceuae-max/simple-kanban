@@ -65,6 +65,7 @@ function makeSessionRepo(): {
     findResumableSession,
     finalizeStaleSessionsForUser,
     endSessionsForAuthSession,
+    sumSessionTokens: vi.fn(async () => 0),
   };
   return {
     repo,

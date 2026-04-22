@@ -1,4 +1,5 @@
 import type { RiskLevel } from '@/lib/persistence/types';
+import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import {
@@ -6,6 +7,7 @@ import {
   readConfiguredThreshold,
   shouldDispatchCritic,
 } from '../shared/risk';
+import { classifyOutcome, recordMetric } from '../shared/instrument';
 
 /**
  * F11 — Critic agent.
@@ -56,6 +58,8 @@ export type CriticResult = {
 export type CriticDeps = {
   client?: AnthropicLike;
   sessionRepo: SessionRepository;
+  /** F21 — optional metrics repo for per-call observability. */
+  metricsRepo?: MetricsRepository;
   /** Optional fail-quiet error hook. F20 wires this to Resend. */
   errorHook?: (info: {
     failureClass: 'anthropic_error' | 'anthropic_429' | 'unknown';
@@ -112,6 +116,8 @@ export async function critique(
   const client = deps.client ?? getAnthropicClient();
   const log = deps.log ?? ((msg, err) => console.error(msg, err));
 
+  const callStartedAt = new Date().toISOString();
+  const startMs = Date.now();
   try {
     const response = await client.messages.create({
       model: COUNCIL_MODEL,
@@ -141,6 +147,23 @@ export async function critique(
       log('critic: turn write failed', writeErr);
     }
 
+    if (deps.metricsRepo) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          agent: 'critic',
+          callStartedAt,
+          firstTokenMs: null,
+          fullReplyMs: Date.now() - startMs,
+          tokensIn,
+          tokensOut,
+          outcome: 'ok',
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
+
     return { ran: true, risk, review, tokensIn, tokensOut };
   } catch (err) {
     // Fail-quiet: no UI impact, but a loud server alert.
@@ -148,6 +171,22 @@ export async function critique(
     const message = err instanceof Error ? err.message : String(err);
     log('critic: dispatch failed (fail-quiet)', err);
     deps.errorHook?.({ failureClass, message, cause: err });
+    if (deps.metricsRepo) {
+      void recordMetric(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          agent: 'critic',
+          callStartedAt,
+          firstTokenMs: null,
+          fullReplyMs: Date.now() - startMs,
+          tokensIn: 0,
+          tokensOut: 0,
+          outcome: classifyOutcome(err),
+        },
+        { metricsRepo: deps.metricsRepo, log },
+      );
+    }
     return { ran: false, risk, review: null, tokensIn: 0, tokensOut: 0 };
   }
 }
