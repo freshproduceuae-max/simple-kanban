@@ -81,6 +81,22 @@ describe('checkBudget', () => {
     expect(r.sessionUsed).toBe(0);
   });
 
+  it('normalises `now` to UTC midnight before calling the metrics view', async () => {
+    const dailyTokenTotalForUser = vi.fn(async () => 100);
+    const metricsRepo = { dailyTokenTotalForUser } as unknown as MetricsRepository;
+    // Afternoon UTC — previously this would shift the window forward
+    // and miss the current day's aggregate row.
+    const now = new Date('2026-04-22T15:30:00Z');
+    await checkBudget(
+      { userId: 'u', sessionId: null, mode: 'chat', now },
+      { sessionRepo: makeSession(0), metricsRepo, dailyCap: 500_000 },
+    );
+    expect(dailyTokenTotalForUser).toHaveBeenCalledWith({
+      userId: 'u',
+      dayIso: '2026-04-22T00:00:00.000Z',
+    });
+  });
+
   it('degrades to ok when reads fail', async () => {
     const sessionRepo = {
       sumSessionTokens: vi.fn(async () => {

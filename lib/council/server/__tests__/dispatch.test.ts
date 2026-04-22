@@ -257,4 +257,52 @@ describe('runCouncilTurn', () => {
       ),
     ).rejects.toThrow('sdk down');
   });
+
+  it('on budget cut: ends the session and skips Researcher/Consolidator/Critic', async () => {
+    const endSession = vi.fn(async () => {});
+    const metricsRepo = {
+      record: vi.fn(async () => {}),
+      listForUser: vi.fn(async () => []),
+      // 500k tokens already used today → daily cap hit.
+      dailyTokenTotalForUser: vi.fn(async () => 500_000),
+    };
+    const sessionRepo = {
+      appendTurn: vi.fn(),
+      sumSessionTokens: vi.fn(async () => 0),
+      endSession,
+    } as unknown as Parameters<typeof runCouncilTurn>[1]['sessionRepo'];
+
+    const result = await runCouncilTurn(
+      {
+        userId: 'u-cut',
+        sessionId: 's-cut',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      {
+        sessionRepo,
+        memoryRepo: deps.memoryRepo,
+        metricsRepo: metricsRepo as unknown as Parameters<
+          typeof runCouncilTurn
+        >[1]['metricsRepo'],
+      },
+    );
+
+    // Stream yields only the calm cap sentence.
+    const chunks: string[] = [];
+    for await (const c of result.stream) chunks.push(c);
+    expect(chunks.join('')).toMatch(/budget/i);
+
+    // Agents were short-circuited.
+    expect(researchMock).not.toHaveBeenCalled();
+    expect(consolidateMock).not.toHaveBeenCalled();
+    expect(critiqueMock).not.toHaveBeenCalled();
+
+    // Session was ended so the next turn doesn't reuse the over-budget row.
+    expect(endSession).toHaveBeenCalledWith({
+      sessionId: 's-cut',
+      userId: 'u-cut',
+    });
+  });
 });

@@ -118,6 +118,40 @@ export async function runCouncilTurn(
   }
 
   if (budget?.verdict === 'cut' && budget.cutSentence) {
+    // End the over-budget session so the next turn cannot reuse it.
+    // Session-cap cuts in particular must *actually* free the user to
+    // start fresh — otherwise the route echoes back the same sessionId
+    // and the next turn hits the same cut. Daily-cap cuts end the
+    // session too: the user won't get a reply on this session until
+    // the UTC day rolls, so there's no reason to keep it open.
+    try {
+      await deps.sessionRepo.endSession({
+        sessionId: input.sessionId,
+        userId: input.userId,
+      });
+    } catch (endErr) {
+      log('dispatch: endSession after budget cut failed', endErr);
+    }
+    // Operator notification (F22 §4): first daily-cap hit fires an
+    // email. Dedup lives in reportAgentError, so repeated cuts by the
+    // same user inside an hour collapse to one send. Session-cap cuts
+    // also notify so an operator can see runaway sessions early.
+    const failureClass =
+      budget.dailyUsed >= budget.dailyCap ? 'daily_cap_hit' : 'session_cap_hit';
+    void reportAgentError(
+      {
+        userId: input.userId,
+        agent: 'consolidator',
+        failureClass: 'unknown',
+        message: `Budget cut (${failureClass}) — session ${budget.sessionUsed}/${budget.sessionCeiling}, daily ${budget.dailyUsed}/${budget.dailyCap}`,
+        context: {
+          sessionId: input.sessionId,
+          mode: input.mode,
+          kind: failureClass,
+        },
+      },
+      { log },
+    );
     return cutResult(input.mode, budget);
   }
 

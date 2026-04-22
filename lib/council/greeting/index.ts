@@ -6,6 +6,7 @@ import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared
 import { COUNCIL_VOICE_STYLEBOOK } from '../shared/voice';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
 import { checkBudget } from '../shared/budget-check';
+import { reportAgentError } from '../errors/email';
 
 /**
  * F14 — Morning greeting composer.
@@ -233,6 +234,18 @@ export async function composeFullGreeting(
         },
       );
       if (budget.verdict === 'cut' && budget.cutSentence) {
+        // Operator notification (F22 §4). Dedup lives in the email
+        // module so repeated greeting cuts collapse to one send.
+        void reportAgentError(
+          {
+            userId: input.userId,
+            agent: 'consolidator',
+            failureClass: 'unknown',
+            message: `Greeting budget cut — daily ${budget.dailyUsed}/${budget.dailyCap}`,
+            context: { mode: 'greeting', kind: 'daily_cap_hit' },
+          },
+          { log },
+        );
         const sentence = budget.cutSentence;
         const stream: AsyncIterable<string> = {
           async *[Symbol.asyncIterator]() {

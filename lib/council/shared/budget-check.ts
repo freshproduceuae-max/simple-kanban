@@ -101,13 +101,22 @@ export async function checkBudget(
 
   // Both reads in parallel. Failures degrade to 0 — a metrics/turns
   // outage should never lock a user out of a reply.
+  // The metrics view groups `day = date_trunc('day', call_started_at)` at
+  // UTC midnight, and the repo reads a half-open `[dayIso, dayIso+24h)`
+  // window. Passing `now` directly would shift the window forward and
+  // miss the current day's aggregate row once the clock is past 00:00.
+  // Normalise to UTC midnight so the window lines up with the view.
+  const utcMidnightIso = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  ).toISOString();
+
   const [sessionRes, dailyRes] = await Promise.allSettled([
     input.sessionId
       ? deps.sessionRepo.sumSessionTokens({ sessionId: input.sessionId })
       : Promise.resolve(0),
     deps.metricsRepo.dailyTokenTotalForUser({
       userId: input.userId,
-      dayIso: now.toISOString(),
+      dayIso: utcMidnightIso,
     }),
   ]);
 
