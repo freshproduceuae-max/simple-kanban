@@ -4,11 +4,13 @@
 -- server can enforce the PRD rule "sign-out ends the session" even
 -- when the client echoes a stale `sessionId` back under a new login.
 --
--- Set by the resolver from Supabase user `last_sign_in_at` (or the
--- user id as a fallback). Nullable to stay compatible with rows
--- written before this migration; those rows will never match a
--- `findResumableSession` call (the filter requires equality) and
--- will be finalized as stale on the next request.
+-- Set by the resolver from the JWT `session_id` claim (or the user
+-- id as a fallback). Nullable to stay compatible with rows written
+-- before this migration; those rows never match a
+-- `findResumableSession` call (the filter requires equality).
+-- Migration 012 follows up with a one-time idempotent backfill
+-- that stamps `ended_at` on every remaining NULL-fingerprint row,
+-- so post-012 every live row has a non-NULL fingerprint.
 alter table public.council_sessions
   add column if not exists auth_session_id text;
 

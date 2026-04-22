@@ -30,9 +30,12 @@ export interface CouncilSessionRow {
   mode: CouncilMode;
   /**
    * Fingerprint of the Supabase auth session that opened this row —
-   * see `getAuthedIdentity`. Nullable because pre-migration-011 rows
-   * don't carry one; those rows never match a `findResumableSession`
-   * lookup and get finalized on the next request.
+   * see `getAuthedIdentity`. Nullable at the column level because
+   * migration 011 added the field without a backfill; migration 012
+   * then stamps `ended_at` on every remaining NULL-fingerprint row
+   * as a one-time close-out. Post-012, every live row has a non-NULL
+   * fingerprint (the repo sets it on every insert), so in practice
+   * this is only NULL for historical, already-ended rows.
    */
   auth_session_id: string | null;
   started_at: string;
