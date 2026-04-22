@@ -8,6 +8,7 @@ import { critique, type CriticResult } from '@/lib/council/critic';
 import type { AnthropicLike } from '@/lib/council/shared/client';
 import { checkBudget, type BudgetCheckResult } from '@/lib/council/shared/budget-check';
 import { reportAgentError } from '@/lib/council/errors/email';
+import { invalidateSessionCacheBySessionId } from '@/lib/council/server/session';
 
 /**
  * F15/F16/F17 — shared Council-turn orchestrator.
@@ -132,22 +133,27 @@ export async function runCouncilTurn(
     } catch (endErr) {
       log('dispatch: endSession after budget cut failed', endErr);
     }
-    // Operator notification (F22 §4): first daily-cap hit fires an
-    // email. Dedup lives in reportAgentError, so repeated cuts by the
-    // same user inside an hour collapse to one send. Session-cap cuts
-    // also notify so an operator can see runaway sessions early.
-    const failureClass =
+    // Drop the in-memory resolver cache entry for this session so the
+    // next turn falls through to `startSession` and opens a fresh row,
+    // rather than re-cutting on the same cached id.
+    invalidateSessionCacheBySessionId(input.sessionId);
+
+    // Operator notification (F22 §4): first daily- or session-cap hit
+    // fires an email. The email module's 1-hour dedup keys on
+    // (userId, agent, failureClass) — passing the specific class
+    // ensures a budget cut is not suppressed by an unrelated prior
+    // `unknown` failure on the same agent.
+    const failureClass: 'daily_cap_hit' | 'session_cap_hit' =
       budget.dailyUsed >= budget.dailyCap ? 'daily_cap_hit' : 'session_cap_hit';
     void reportAgentError(
       {
         userId: input.userId,
         agent: 'consolidator',
-        failureClass: 'unknown',
+        failureClass,
         message: `Budget cut (${failureClass}) — session ${budget.sessionUsed}/${budget.sessionCeiling}, daily ${budget.dailyUsed}/${budget.dailyCap}`,
         context: {
           sessionId: input.sessionId,
           mode: input.mode,
-          kind: failureClass,
         },
       },
       { log },

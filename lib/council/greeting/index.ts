@@ -240,9 +240,9 @@ export async function composeFullGreeting(
           {
             userId: input.userId,
             agent: 'consolidator',
-            failureClass: 'unknown',
+            failureClass: 'daily_cap_hit',
             message: `Greeting budget cut — daily ${budget.dailyUsed}/${budget.dailyCap}`,
-            context: { mode: 'greeting', kind: 'daily_cap_hit' },
+            context: { mode: 'greeting' },
           },
           { log },
         );

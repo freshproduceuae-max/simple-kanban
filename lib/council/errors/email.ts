@@ -24,6 +24,8 @@ export type ErrorFailureClass =
   | 'anthropic_error'
   | 'anthropic_429'
   | 'resend_error'
+  | 'session_cap_hit'
+  | 'daily_cap_hit'
   | 'unknown';
 
 export type ReportAgentErrorInput = {
