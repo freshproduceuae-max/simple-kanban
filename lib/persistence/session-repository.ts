@@ -40,6 +40,20 @@ export interface SessionRepository {
     userId: string;
     authSessionId: string;
   }): Promise<CouncilSessionRow[]>;
+  /**
+   * Closes every still-open session row for `userId` whose
+   * `auth_session_id` matches the caller's current fingerprint. Sets
+   * `ended_at = now()` and returns the affected rows so the caller
+   * can fire a `session-end` summary per row. Called from the sign-
+   * out Server Action — PRD §10.2 requires explicit sign-out to end
+   * the session. This is the targeted inverse of
+   * `finalizeStaleSessionsForUser`: only the current auth session's
+   * rows are closed, other concurrent devices stay live.
+   */
+  endSessionsForAuthSession(input: {
+    userId: string;
+    authSessionId: string;
+  }): Promise<CouncilSessionRow[]>;
 }
 
 export class SessionRepositoryNotImplemented implements SessionRepository {
@@ -71,6 +85,12 @@ export class SessionRepositoryNotImplemented implements SessionRepository {
     throw new Error('SessionRepository: implementation lands with F18');
   }
   async finalizeStaleSessionsForUser(_input: {
+    userId: string;
+    authSessionId: string;
+  }): Promise<CouncilSessionRow[]> {
+    throw new Error('SessionRepository: implementation lands with F18');
+  }
+  async endSessionsForAuthSession(_input: {
     userId: string;
     authSessionId: string;
   }): Promise<CouncilSessionRow[]> {

@@ -186,6 +186,29 @@ export class SupabaseSessionRepository implements SessionRepository {
     return (data ?? []) as CouncilSessionRow[];
   }
 
+  async endSessionsForAuthSession(input: {
+    userId: string;
+    authSessionId: string;
+  }): Promise<CouncilSessionRow[]> {
+    // Close every open row whose (user_id, auth_session_id) matches
+    // the caller's current fingerprint. Scoped tightly on purpose:
+    // concurrent sessions on other devices (different auth_session_id)
+    // stay live.
+    const nowIso = new Date().toISOString();
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .update({ ended_at: nowIso })
+      .eq('user_id', input.userId)
+      .eq('auth_session_id', input.authSessionId)
+      .is('ended_at', null)
+      .select('*');
+    if (error)
+      throw new Error(
+        `SessionRepository.endSessionsForAuthSession: ${error.message}`,
+      );
+    return (data ?? []) as CouncilSessionRow[];
+  }
+
   async listTurns(sessionId: string): Promise<CouncilTurnRow[]> {
     const { data, error } = await this.client
       .from('council_turns')

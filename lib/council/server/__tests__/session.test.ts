@@ -51,6 +51,7 @@ function makeSessionRepo(): {
   // mockResolvedValueOnce.
   const findResumableSession = vi.fn(async () => null);
   const finalizeStaleSessionsForUser = vi.fn(async () => []);
+  const endSessionsForAuthSession = vi.fn(async () => []);
   const repo: SessionRepository = {
     startSession,
     endSession,
@@ -63,6 +64,7 @@ function makeSessionRepo(): {
     listTurns: vi.fn(async () => []),
     findResumableSession,
     finalizeStaleSessionsForUser,
+    endSessionsForAuthSession,
   };
   return {
     repo,

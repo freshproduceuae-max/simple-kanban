@@ -344,4 +344,44 @@ describe('SupabaseSessionRepository (F18)', () => {
       ).rejects.toThrow(/finalizeStaleSessionsForUser: boom/);
     });
   });
+
+  describe('endSessionsForAuthSession', () => {
+    it('closes open rows matching the caller’s (user_id, auth_session_id) and returns them', async () => {
+      const builder = chain<CouncilSessionRow[]>({
+        data: [sessionRow],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const rows = await repo.endSessionsForAuthSession({
+        userId: 'u1',
+        authSessionId: 'auth-1',
+      });
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ ended_at: expect.any(String) }),
+      );
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.eq).toHaveBeenCalledWith('auth_session_id', 'auth-1');
+      expect(builder.is).toHaveBeenCalledWith('ended_at', null);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe('session-1');
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<CouncilSessionRow[]>({
+        data: null as unknown as CouncilSessionRow[],
+        error: { message: 'boom' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.endSessionsForAuthSession({
+          userId: 'u1',
+          authSessionId: 'auth-1',
+        }),
+      ).rejects.toThrow(/endSessionsForAuthSession: boom/);
+    });
+  });
 });
