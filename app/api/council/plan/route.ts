@@ -8,6 +8,7 @@ import {
   getProposalRepository,
   getSessionRepository,
   getCouncilMemoryRepository,
+  getMetricsRepository,
 } from '@/lib/persistence/server';
 
 /**
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
 
   const sessionRepo = getSessionRepository();
   const memoryRepo = getCouncilMemoryRepository();
+  const metricsRepo = getMetricsRepository();
   const sessionId = await resolveSessionId({
     userId,
     authSessionId,
@@ -94,6 +96,7 @@ export async function POST(request: Request) {
     {
       sessionRepo,
       memoryRepo,
+      metricsRepo,
     },
   );
 

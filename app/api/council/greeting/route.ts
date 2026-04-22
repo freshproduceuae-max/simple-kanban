@@ -3,6 +3,8 @@ import { getAuthedUserId } from '@/lib/auth/current-user';
 import {
   getTaskRepository,
   getCouncilMemoryRepository,
+  getMetricsRepository,
+  getSessionRepository,
 } from '@/lib/persistence/server';
 import {
   composeFullGreeting,
@@ -89,7 +91,11 @@ export async function POST(request: Request) {
   // Full greeting — stream as text/plain.
   const { stream, done } = await composeFullGreeting(
     { userId, signals },
-    { memoryRepo: getCouncilMemoryRepository() },
+    {
+      memoryRepo: getCouncilMemoryRepository(),
+      metricsRepo: getMetricsRepository(),
+      sessionRepo: getSessionRepository(),
+    },
   );
 
   const encoder = new TextEncoder();

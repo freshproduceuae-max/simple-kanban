@@ -209,6 +209,31 @@ export class SupabaseSessionRepository implements SessionRepository {
     return (data ?? []) as CouncilSessionRow[];
   }
 
+  async sumSessionTokens(input: { sessionId: string }): Promise<number> {
+    // Sum tokens_in + tokens_out across every turn in this session.
+    // PostgREST doesn't expose a raw SQL SUM over a filtered set, so
+    // we select the two columns and fold in JS. Sessions are
+    // bounded (F18 caps practical size well under a page), and the
+    // index `council_turns_session_created_idx` keeps the filter
+    // cheap.
+    const { data, error } = await this.client
+      .from('council_turns')
+      .select('tokens_in, tokens_out')
+      .eq('session_id', input.sessionId);
+    if (error)
+      throw new Error(
+        `SessionRepository.sumSessionTokens: ${error.message}`,
+      );
+    let total = 0;
+    for (const row of (data ?? []) as Array<{
+      tokens_in: number | null;
+      tokens_out: number | null;
+    }>) {
+      total += (row.tokens_in ?? 0) + (row.tokens_out ?? 0);
+    }
+    return total;
+  }
+
   async listTurns(sessionId: string): Promise<CouncilTurnRow[]> {
     const { data, error } = await this.client
       .from('council_turns')

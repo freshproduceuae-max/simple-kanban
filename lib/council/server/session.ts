@@ -74,6 +74,33 @@ export function __resetSessionCacheForTests(): void {
 }
 
 /**
+ * Invalidate any cache entry pointing at `sessionId`, regardless of
+ * which `(userId, authSessionId)` key it sits under. Used by the F22
+ * budget-cut path: after dispatch ends the over-budget `council_sessions`
+ * row, the in-memory slot that still points at that id must also be
+ * cleared — otherwise the next turn's `resolveSessionId` hot-path hits
+ * the cache and reuses the dead id, trapping the user on the same cut.
+ *
+ * A sessionId can only ever appear once in the cache (each slot stores
+ * exactly one), so a single removal is sufficient. We scan because
+ * the cache is keyed by identity, not sessionId; the map is tiny
+ * (one entry per warm auth session) so the scan is cheap.
+ */
+export function invalidateSessionCacheBySessionId(sessionId: string): boolean {
+  let removedKey: string | null = null;
+  sessionByIdentity.forEach((entry, key) => {
+    if (removedKey === null && entry.sessionId === sessionId) {
+      removedKey = key;
+    }
+  });
+  if (removedKey !== null) {
+    sessionByIdentity.delete(removedKey);
+    return true;
+  }
+  return false;
+}
+
+/**
  * UUID guard — trust a client-provided id only if it looks like a real
  * `gen_random_uuid()` value. Prevents a stale/garbage shelf state from
  * poisoning the cache with an id that will then fail the FK when the

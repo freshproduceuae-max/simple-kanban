@@ -25,6 +25,22 @@ vi.mock('@/lib/persistence/server', () => ({
     writeRecall: vi.fn(),
     listRecallsForTurn: vi.fn(),
   }),
+  getMetricsRepository: () => ({
+    record: vi.fn(async () => {}),
+    listForUser: vi.fn(async () => []),
+    dailyTokenTotalForUser: vi.fn(async () => 0),
+  }),
+  getSessionRepository: () => ({
+    startSession: vi.fn(),
+    endSession: vi.fn(),
+    appendTurn: vi.fn(),
+    listSessionsForUser: vi.fn(),
+    listTurns: vi.fn(),
+    findResumableSession: vi.fn(async () => null),
+    finalizeStaleSessionsForUser: vi.fn(async () => []),
+    endSessionsForAuthSession: vi.fn(async () => []),
+    sumSessionTokens: vi.fn(async () => 0),
+  }),
 }));
 
 vi.mock('@/lib/council/greeting/last-session', () => ({

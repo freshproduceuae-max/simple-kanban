@@ -1,10 +1,14 @@
 import type { CouncilMode, TaskRow } from '@/lib/persistence/types';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import type { CouncilMemoryRepository } from '@/lib/persistence/council-memory-repository';
+import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import { consolidate, type ConsolidatorResult } from '@/lib/council/consolidator';
 import { research, type ResearcherFinding } from '@/lib/council/researcher';
 import { critique, type CriticResult } from '@/lib/council/critic';
 import type { AnthropicLike } from '@/lib/council/shared/client';
+import { checkBudget, type BudgetCheckResult } from '@/lib/council/shared/budget-check';
+import { reportAgentError } from '@/lib/council/errors/email';
+import { invalidateSessionCacheBySessionId } from '@/lib/council/server/session';
 
 /**
  * F15/F16/F17 — shared Council-turn orchestrator.
@@ -59,6 +63,8 @@ export type RunCouncilTurnDeps = {
   client?: AnthropicLike;
   sessionRepo: SessionRepository;
   memoryRepo: CouncilMemoryRepository;
+  /** F21 — optional metrics repo; when present, agents emit per-call rows. */
+  metricsRepo?: MetricsRepository;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -75,6 +81,7 @@ export type RunCouncilTurnResult = {
     mode: CouncilMode;
     researcher: ResearcherFinding;
     critic: CriticResult;
+    budget?: BudgetCheckResult;
   }>;
 };
 
@@ -83,6 +90,100 @@ export async function runCouncilTurn(
   deps: RunCouncilTurnDeps,
 ): Promise<RunCouncilTurnResult> {
   const log = deps.log ?? ((msg, err) => console.error(msg, err));
+
+  // 0. Pre-flight budget check (F22). A 'cut' verdict short-circuits
+  //    the entire turn: no Researcher, no Consolidator, no Critic —
+  //    just a calm sentence explaining the cap is hit. A 'warn' verdict
+  //    proceeds normally; the banner is prepended to the streamed reply
+  //    so the user sees the ceiling warning once at the top of the
+  //    response. The budget module degrades to 'ok' on read failure,
+  //    so a metrics outage never locks a user out of a reply.
+  let budget: BudgetCheckResult | undefined;
+  if (deps.metricsRepo) {
+    try {
+      budget = await checkBudget(
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          mode: input.mode,
+        },
+        {
+          sessionRepo: deps.sessionRepo,
+          metricsRepo: deps.metricsRepo,
+          log,
+        },
+      );
+    } catch (budgetErr) {
+      log('dispatch: budget check threw, proceeding', budgetErr);
+    }
+  }
+
+  if (budget?.verdict === 'cut' && budget.cutSentence) {
+    // End the over-budget session so the next turn cannot reuse it.
+    // Session-cap cuts in particular must *actually* free the user to
+    // start fresh — otherwise the route echoes back the same sessionId
+    // and the next turn hits the same cut. Daily-cap cuts end the
+    // session too: the user won't get a reply on this session until
+    // the UTC day rolls, so there's no reason to keep it open.
+    try {
+      await deps.sessionRepo.endSession({
+        sessionId: input.sessionId,
+        userId: input.userId,
+      });
+    } catch (endErr) {
+      log('dispatch: endSession after budget cut failed', endErr);
+    }
+    // Drop the in-memory resolver cache entry for this session so the
+    // next turn falls through to `startSession` and opens a fresh row,
+    // rather than re-cutting on the same cached id.
+    invalidateSessionCacheBySessionId(input.sessionId);
+    // Mirror the other session-end paths (idle rollover, sign-out) by
+    // writing a `session-end` summary. Budget-terminated sessions are
+    // real ended sessions per PRD §10.2 / §11.1; without this row the
+    // Researcher / greeting memory hand-off would skip the closure
+    // entirely and future turns would lose the context that this
+    // session ended because a cap was hit.
+    const cutReason =
+      budget.dailyUsed >= budget.dailyCap
+        ? `daily token cap (${budget.dailyUsed}/${budget.dailyCap})`
+        : `session token ceiling (${budget.sessionUsed}/${budget.sessionCeiling})`;
+    void (async () => {
+      try {
+        await deps.memoryRepo.writeSummary({
+          user_id: input.userId,
+          session_id: input.sessionId,
+          kind: 'session-end',
+          content: `Session closed by budget cut — ${cutReason}. Mode: ${input.mode}.`,
+        });
+      } catch (summaryErr) {
+        log('dispatch: writeSummary after budget cut failed (swallowed)', summaryErr);
+      }
+    })();
+
+    // Operator notification (F22 §4): first daily- or session-cap hit
+    // fires an email. The email module's 1-hour dedup keys on
+    // (userId, agent, failureClass) — passing the specific class
+    // ensures a budget cut is not suppressed by an unrelated prior
+    // `unknown` failure on the same agent.
+    const failureClass: 'daily_cap_hit' | 'session_cap_hit' =
+      budget.dailyUsed >= budget.dailyCap ? 'daily_cap_hit' : 'session_cap_hit';
+    void reportAgentError(
+      {
+        userId: input.userId,
+        agent: 'consolidator',
+        failureClass,
+        message: `Budget cut (${failureClass}) — session ${budget.sessionUsed}/${budget.sessionCeiling}, daily ${budget.dailyUsed}/${budget.dailyCap}`,
+        context: {
+          sessionId: input.sessionId,
+          mode: input.mode,
+        },
+      },
+      { log },
+    );
+    return cutResult(input.mode, budget);
+  }
+
+  const warnBanner = budget?.verdict === 'warn' ? budget.banner : null;
 
   // 1. Researcher first. Its finding — success, cap-hit, or fail-visible
   //    one-liner — becomes a backstage system-prompt frame for the
@@ -105,6 +206,20 @@ export async function runCouncilTurn(
         client: deps.client,
         sessionRepo: deps.sessionRepo,
         memoryRepo: deps.memoryRepo,
+        metricsRepo: deps.metricsRepo,
+        errorHook: ({ failureClass, message, cause }) => {
+          void reportAgentError(
+            {
+              userId: input.userId,
+              agent: 'researcher',
+              failureClass,
+              message,
+              context: { sessionId: input.sessionId, mode: input.mode },
+              cause,
+            },
+            { log },
+          );
+        },
         log,
       },
     );
@@ -140,6 +255,20 @@ export async function runCouncilTurn(
         client: deps.client,
         sessionRepo: deps.sessionRepo,
         memoryRepo: deps.memoryRepo,
+        metricsRepo: deps.metricsRepo,
+        errorHook: ({ failureClass, message, cause }) => {
+          void reportAgentError(
+            {
+              userId: input.userId,
+              agent: 'consolidator',
+              failureClass,
+              message,
+              context: { sessionId: input.sessionId, mode: input.mode },
+              cause,
+            },
+            { log },
+          );
+        },
         log,
       },
     );
@@ -164,6 +293,20 @@ export async function runCouncilTurn(
           {
             client: deps.client,
             sessionRepo: deps.sessionRepo,
+            metricsRepo: deps.metricsRepo,
+            errorHook: ({ failureClass, message, cause }) => {
+              void reportAgentError(
+                {
+                  userId: input.userId,
+                  agent: 'critic',
+                  failureClass,
+                  message,
+                  context: { sessionId: input.sessionId, mode: input.mode },
+                  cause,
+                },
+                { log },
+              );
+            },
             log,
           },
         );
@@ -187,12 +330,66 @@ export async function runCouncilTurn(
     const finalConsolidator = await consolidator.done;
     const critic = await criticPromise;
     return {
-      text: finalConsolidator.text,
+      text: warnBanner
+        ? `${warnBanner}\n\n${finalConsolidator.text}`
+        : finalConsolidator.text,
       mode: finalConsolidator.mode,
       researcher,
       critic,
+      budget,
     };
   })();
 
-  return { stream: consolidator.stream, done };
+  // When a warn banner is present, prepend it once at the top of the
+  // user-visible stream. The banner goes out before any Consolidator
+  // chunk so the user sees the ceiling warning first.
+  const stream: AsyncIterable<string> = warnBanner
+    ? prependBanner(warnBanner, consolidator.stream)
+    : consolidator.stream;
+
+  return { stream, done };
+}
+
+function prependBanner(
+  banner: string,
+  inner: AsyncIterable<string>,
+): AsyncIterable<string> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield `${banner}\n\n`;
+      for await (const chunk of inner) yield chunk;
+    },
+  };
+}
+
+function cutResult(
+  mode: RunCouncilTurnInput['mode'],
+  budget: BudgetCheckResult,
+): RunCouncilTurnResult {
+  const sentence = budget.cutSentence ?? 'Token budget reached.';
+  const stream: AsyncIterable<string> = {
+    async *[Symbol.asyncIterator]() {
+      yield sentence;
+    },
+  };
+  const done = Promise.resolve({
+    text: sentence,
+    mode: mode as CouncilMode,
+    researcher: {
+      ok: false,
+      text: '',
+      toolCalls: [],
+      tokensIn: 0,
+      tokensOut: 0,
+    } satisfies ResearcherFinding,
+    critic: {
+      ran: false,
+      risk: 'low',
+      review: null,
+      tokensIn: 0,
+      tokensOut: 0,
+    } satisfies CriticResult,
+    budget,
+  });
+  return { stream, done };
 }
