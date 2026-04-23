@@ -56,18 +56,37 @@ const RISK_DOT: Record<CriticAudit['risk'], string> = {
 export type HowIGotHereRevealProps = {
   audit: CriticAudit;
   /**
-   * Optional test-only override of the initial open state. Not part
-   * of the F23 surface — F25 will add a real `defaultOpen` semantics
-   * tied to the user's transparency preference.
+   * Optional test-only override of the initial open state. Kept for
+   * existing F23 tests that pre-open the panel to exercise the panel
+   * markup; the F25 production path uses `defaultOpen` instead.
    */
   initialOpen?: boolean;
+  /**
+   * F25 — open the reveal by default. Mode D ("Critic surfaces only
+   * on unresolved dissent") always renders the reveal expanded so the
+   * Critic's review is immediately visible; modes A/B/C leave it
+   * closed and wait for the user's tap. A `true` value acts the same
+   * as `initialOpen: true` — we coerce both into a single initial
+   * state below so the component has one source of truth per mount.
+   */
+  defaultOpen?: boolean;
+  /**
+   * F25 — attach a small `[C]` source glyph to the trigger label.
+   * Mode C ("specialists inline") flags every reveal with a glyph
+   * that names its source without changing the voice; the Council
+   * still speaks as one. Defaults to false so non-C modes render as
+   * before.
+   */
+  showSourceGlyph?: boolean;
 };
 
 export function HowIGotHereReveal({
   audit,
   initialOpen = false,
+  defaultOpen = false,
+  showSourceGlyph = false,
 }: HowIGotHereRevealProps) {
-  const [open, setOpen] = useState(initialOpen);
+  const [open, setOpen] = useState(initialOpen || defaultOpen);
   const panelId = useId();
 
   return (
@@ -90,8 +109,21 @@ export function HowIGotHereReveal({
           'transition-colors duration-duration-fast ease-ease-standard',
           'hover:text-ink-700',
           'focus-visible:outline-none focus-visible:shadow-ring-focus',
+          'inline-flex items-center gap-space-1',
         ].join(' ')}
       >
+        {showSourceGlyph ? (
+          // Mode C source glyph. `aria-hidden` so screen readers stay
+          // on the label (the audit section headings already name the
+          // Critic); the glyph is decorative for sighted users only.
+          <span
+            aria-hidden="true"
+            data-how-i-got-here-glyph="C"
+            className="text-ink-500 not-italic font-weight-medium"
+          >
+            [C]
+          </span>
+        ) : null}
         {open ? 'Hide how I got here' : 'How I got here'}
       </button>
       {open ? (

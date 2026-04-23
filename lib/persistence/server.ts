@@ -19,11 +19,13 @@ import { SupabaseProposalRepository } from './supabase-proposal-repository';
 import { SupabaseSessionRepository } from './supabase-session-repository';
 import { SupabaseCouncilMemoryRepository } from './supabase-council-memory-repository';
 import { SupabaseMetricsRepository } from './supabase-metrics-repository';
+import { SupabaseUserPreferencesRepository } from './supabase-user-preferences-repository';
 import type { TaskRepository } from './task-repository';
 import type { ProposalRepository } from './proposal-repository';
 import type { SessionRepository } from './session-repository';
 import type { CouncilMemoryRepository } from './council-memory-repository';
 import type { MetricsRepository } from './metrics-repository';
+import type { UserPreferencesRepository } from './user-preferences-repository';
 
 export function getTaskRepository(): TaskRepository {
   return new SupabaseTaskRepository(createServerClient());
@@ -43,4 +45,8 @@ export function getCouncilMemoryRepository(): CouncilMemoryRepository {
 
 export function getMetricsRepository(): MetricsRepository {
   return new SupabaseMetricsRepository(createServerClient());
+}
+
+export function getUserPreferencesRepository(): UserPreferencesRepository {
+  return new SupabaseUserPreferencesRepository(createServerClient());
 }

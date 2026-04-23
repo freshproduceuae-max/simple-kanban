@@ -35,6 +35,15 @@ export type ShelfTurn =
       stream?: ReactNode;
       /** Mode-specific affordance below the reply (chips, cards…). */
       extras?: ReactNode;
+      /**
+       * F25 — optional pre-body banner. Transparency mode D renders a
+       * short "the Critic wasn't convinced" line ABOVE the reply so the
+       * user reads the dissent before the reply — matches PRD §12.3.
+       * Undefined on every other mode/turn; the slot is nullable by
+       * design so the absence of a banner leaves the body layout
+       * unchanged.
+       */
+      dissentBanner?: ReactNode;
     };
 
 export function TurnList({ turns }: { turns: readonly ShelfTurn[] }) {
@@ -59,6 +68,9 @@ export function TurnList({ turns }: { turns: readonly ShelfTurn[] }) {
             </p>
           ) : (
             <div data-turn-role="council" className="space-y-space-2">
+              {turn.dissentBanner ? (
+                <div data-turn-dissent="">{turn.dissentBanner}</div>
+              ) : null}
               <div
                 data-turn-body
                 className="text-ink-900 font-family-body text-size-md leading-relaxed"

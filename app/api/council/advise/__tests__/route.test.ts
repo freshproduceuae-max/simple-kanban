@@ -7,6 +7,8 @@ const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
 const findResumableSession = vi.fn();
+const getForUserPref = vi.fn();
+const upsertPref = vi.fn();
 const REAL_UUID = 'ffffffff-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -42,6 +44,10 @@ vi.mock('@/lib/persistence/server', () => ({
     record: vi.fn(async () => {}),
     listForUser: vi.fn(async () => []),
     dailyTokenTotalForUser: vi.fn(async () => 0),
+  }),
+  getUserPreferencesRepository: () => ({
+    getForUser: (...a: unknown[]) => getForUserPref(...a),
+    upsert: (...a: unknown[]) => upsertPref(...a),
   }),
 }));
 
@@ -122,6 +128,9 @@ describe('POST /api/council/advise', () => {
     writeSummary.mockReset();
     endSession.mockReset();
     findResumableSession.mockReset();
+    getForUserPref.mockReset();
+    upsertPref.mockReset();
+    getForUserPref.mockResolvedValue(null);
     findResumableSession.mockImplementation(
       async ({ sessionId }: { sessionId: string }) => ({
         id: sessionId,
@@ -297,12 +306,15 @@ describe('POST /api/council/advise', () => {
     expect(res.headers.get('x-council-has-proposals')).toBeNull();
     const body = await res.text();
     const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    // F25 — transparencyMode rides alongside reveal fragments; default
+    // preference row = B.
     expect(trailer).toEqual({
       criticAudit: {
         risk: 'low',
         review: 'Nothing to tone down.',
         preDraft: 'here is how I see the board.',
       },
+      transparencyMode: 'B',
     });
   });
 
@@ -325,6 +337,8 @@ describe('POST /api/council/advise', () => {
     expect(res.headers.get('x-council-has-proposals')).toBeNull();
     const body = await res.text();
     const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    // F25 — transparencyMode rides alongside reveal fragments; default
+    // preference row = B.
     expect(trailer).toEqual({
       memoryRecall: {
         recalls: [
@@ -336,6 +350,7 @@ describe('POST /api/council/advise', () => {
           },
         ],
       },
+      transparencyMode: 'B',
     });
   });
 
@@ -385,5 +400,75 @@ describe('POST /api/council/advise', () => {
     expect(trailer.handoff).toBe('plan');
     expect(trailer.criticAudit.risk).toBe('high');
     expect(trailer.memoryRecall.recalls[0].id).toBe('sum-triple');
+  });
+
+  // -------- F25: transparency-mode trailer + server-side mode-A suppression --------
+
+  it('F25: passes transparencyMode through alongside reveals', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'D',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('reflecting…', {
+        ran: true,
+        risk: 'high',
+        review: 'the draft overreaches.',
+      }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how do you see this?' }),
+    );
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('D');
+  });
+
+  it('F25: suppresses reveals server-side under mode A but still ships the handoff cue', async () => {
+    // Handoff is a client-routing cue, not a reveal — mode A must
+    // preserve it. Critic + memory are dropped.
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'let me draft that for you.',
+        { ran: true, risk: 'high', review: 'would normally flag.' },
+        [
+          {
+            id: 'sum-dropA',
+            content: 'prior context',
+            sessionId: 'sess-dropA',
+            createdAt: '2026-04-10T00:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    expect(res.headers.get('x-council-has-proposals')).toBe('true');
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer).toEqual({ handoff: 'plan' });
+  });
+
+  it('F25: under mode A with no handoff + no reveals, emits no trailer', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('looks steady.', { ran: true, risk: 'low', review: 'ok.' }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how does this look?' }),
+    );
+    expect(await res.text()).toBe('looks steady.');
   });
 });

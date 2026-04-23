@@ -11,6 +11,7 @@ import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { buildCriticAudit } from '@/lib/council/server/critic-audit';
 import { buildMemoryRecallAudit } from '@/lib/council/server/memory-recall-audit';
+import { resolveTransparencyMode } from '@/lib/council/server/transparency';
 import { userRequestedPlanHandoff } from '@/lib/council/shared/handoff-request';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
 import {
@@ -18,6 +19,7 @@ import {
   getSessionRepository,
   getCouncilMemoryRepository,
   getMetricsRepository,
+  getUserPreferencesRepository,
 } from '@/lib/persistence/server';
 import type { TaskRow } from '@/lib/persistence/types';
 
@@ -118,6 +120,14 @@ export async function POST(request: Request) {
   const sessionRepo = getSessionRepository();
   const memoryRepo = getCouncilMemoryRepository();
   const metricsRepo = getMetricsRepository();
+  const preferencesRepo = getUserPreferencesRepository();
+  // F25 — resolve the transparency pref in parallel with the session.
+  // Fail-quiet to B inside the resolver so a Supabase wobble never
+  // blocks the stream.
+  const transparencyModePromise = resolveTransparencyMode(
+    userId,
+    preferencesRepo,
+  );
   const sessionId = await resolveSessionId({
     userId,
     authSessionId,
@@ -182,19 +192,25 @@ export async function POST(request: Request) {
   // need the second pass), so the Critic only appears on drafts the
   // risk heuristic flags — but when it does, the "How I got here"
   // reveal should be available here too. All fragments share one JSON
-  // line.
+  // line. F25 attaches the user's resolved transparency mode whenever
+  // a reveal artifact is present; mode A short-circuits the reveal
+  // artifacts (handoff still ships — it's a routing cue, not a reveal).
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     // Make sure the consolidator has finished persisting before the
     // client pivots to Plan mode.
     const final = await done;
-    const criticAudit = buildCriticAudit(final);
-    const memoryRecall = buildMemoryRecallAudit(
-      final.researcher.recalledSummaries,
-    );
+    const transparencyMode = await transparencyModePromise;
+    const emitReveals = transparencyMode !== 'A';
+    const criticAudit = emitReveals ? buildCriticAudit(final) : null;
+    const memoryRecall = emitReveals
+      ? buildMemoryRecallAudit(final.researcher.recalledSummaries)
+      : null;
     const payload: Record<string, unknown> = {};
     if (planHandoff) payload.handoff = 'plan';
     if (criticAudit) payload.criticAudit = criticAudit;
     if (memoryRecall) payload.memoryRecall = memoryRecall;
+    // F25 — mode ships alongside reveals (not handoff-only trailers).
+    if (criticAudit || memoryRecall) payload.transparencyMode = transparencyMode;
     return Object.keys(payload).length > 0 ? payload : null;
   };
 

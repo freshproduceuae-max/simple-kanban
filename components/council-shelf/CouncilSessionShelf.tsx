@@ -22,6 +22,7 @@ import type {
   MemoryRecallAudit,
   MemoryRecallItem,
 } from '@/lib/council/server/memory-recall-audit';
+import type { TransparencyMode } from '@/lib/persistence';
 
 /**
  * F22a — CouncilSessionShelf composite.
@@ -71,7 +72,10 @@ type Mode = 'chat' | 'plan' | 'advise';
 type ProposalFrame = { id: string; title: string };
 type CriticAuditTrailer = { criticAudit?: CriticAudit };
 type MemoryRecallTrailer = { memoryRecall?: MemoryRecallAudit };
-type RevealTrailer = CriticAuditTrailer & MemoryRecallTrailer;
+type TransparencyModeTrailer = { transparencyMode?: TransparencyMode };
+type RevealTrailer = CriticAuditTrailer &
+  MemoryRecallTrailer &
+  TransparencyModeTrailer;
 type PlanTrailer = RevealTrailer & {
   proposals?: ProposalFrame[];
   chips?: string[];
@@ -103,6 +107,20 @@ function extractCriticAudit(trailer: unknown): CriticAudit | null {
   const audit: CriticAudit = { risk, review, preDraft };
   if (preDraftTruncated === true) audit.preDraftTruncated = true;
   return audit;
+}
+
+/**
+ * F25 — narrow an unknown trailer fragment to a `TransparencyMode` if
+ * the server attached one. Returns null when the field is missing or
+ * not one of the four enum values; callers default to B in that case
+ * (matches `resolveTransparencyMode`'s server-side default so the no-
+ * row user sees identical behaviour client and server).
+ */
+function extractTransparencyMode(trailer: unknown): TransparencyMode | null {
+  if (!trailer || typeof trailer !== 'object') return null;
+  const raw = (trailer as TransparencyModeTrailer).transparencyMode;
+  if (raw === 'A' || raw === 'B' || raw === 'C' || raw === 'D') return raw;
+  return null;
 }
 
 /**
@@ -415,29 +433,103 @@ export function CouncilSessionShelf({
         }
       }
 
+      // F25 — resolve the user's transparency mode from the trailer.
+      // When the server didn't attach one (no reveals fired, or a
+      // non-reveal trailer such as Plan-only proposals), we default to
+      // 'B' — the same "reveal-on-demand" default the resolver uses on
+      // the server. Under mode A the server already stripped the
+      // reveal artifacts; under C we add source glyphs; under D we
+      // default-open the Critic reveal and surface unresolved dissent.
+      const transparencyMode: TransparencyMode =
+        extractTransparencyMode(trailer) ?? 'B';
+
       // F24 — "I remembered from earlier" reveal. Every mode's trailer
       // can carry a `memoryRecall` fragment; render it when the
       // Researcher surfaced prior-session summaries. F24 sits above F23
       // in the extras stack because memory feeds the draft and the
       // draft feeds the Critic — reading top-to-bottom ("what I knew"
       // → "what I said" → "what I flagged") matches the pipeline.
+      //
+      // F25 gating: mode A suppresses the reveal (we still call the
+      // extractor for consistency — returns null here because the
+      // server already stripped the fragment under A, but the belt-
+      // and-braces check also covers a stale client that arrived with
+      // a new mode mid-session).
       const memoryRecall = extractMemoryRecall(trailer);
-      if (memoryRecall) {
+      const showMemoryRecall = memoryRecall !== null && transparencyMode !== 'A';
+      if (showMemoryRecall && memoryRecall) {
         extrasFragments.push(
-          <MemoryRecallReveal key="memory-recall" audit={memoryRecall} />,
+          <MemoryRecallReveal
+            key="memory-recall"
+            audit={memoryRecall}
+            // Mode B/D leaves the reveal collapsed by default; modes
+            // that pre-open on specialist fire aren't specified for
+            // memory (D opens Critic only per PRD §12.3). Mode C adds
+            // a source glyph to the trigger via the showSourceGlyph
+            // prop below.
+            showSourceGlyph={transparencyMode === 'C'}
+          />,
         );
       }
 
       // F23 — "How I got here" reveal. Every mode's trailer can carry
-      // a `criticAudit` fragment; render it when present. No mode gate:
-      // Chat/Advise emit it only when the Critic fires (risk ≥
-      // threshold), Plan emits it on every turn (forceCritic=true).
+      // a `criticAudit` fragment; render it when present. F25 gates:
+      //   - A suppresses the reveal entirely
+      //   - C adds a `[C]` source glyph on the trigger
+      //   - D opens the reveal by default AND, when the Critic wasn't
+      //     convinced (risk === 'high'), shows an inline dissent banner
+      //     ABOVE the reply body so the user reads the dissent before
+      //     the reply — matching PRD §12.3 "the Critic wasn't convinced;
+      //     here's why".
       const criticAudit = extractCriticAudit(trailer);
-      if (criticAudit) {
+      const showCriticAudit = criticAudit !== null && transparencyMode !== 'A';
+      if (showCriticAudit && criticAudit) {
         extrasFragments.push(
-          <HowIGotHereReveal key="how-i-got-here" audit={criticAudit} />,
+          <HowIGotHereReveal
+            key="how-i-got-here"
+            audit={criticAudit}
+            defaultOpen={transparencyMode === 'D'}
+            showSourceGlyph={transparencyMode === 'C'}
+          />,
         );
       }
+
+      // F25 — unresolved-dissent banner for mode D. Renders ABOVE the
+      // reply body (via a prepend into extrasFragments is wrong — it
+      // would render AFTER the body; we handle this by passing a
+      // `dissentBanner` to the turn renderer). For minimal diff we
+      // attach the banner as a separate pre-body fragment through a
+      // new turn field below. When risk isn't high we don't need to
+      // alert: D's "unresolved" proxy in v0.4 is `risk === 'high'`.
+      // Rationale: v0.4 has no pre-draft-vs-post-draft diff, so we
+      // can't literally measure "Critic wasn't accommodated"; high
+      // risk is the honest proxy — the Critic flagged something
+      // serious and the Consolidator's single pass is the final word.
+      const showDissentBanner =
+        transparencyMode === 'D' &&
+        criticAudit !== null &&
+        criticAudit.risk === 'high';
+      const dissentBanner: ReactNode | undefined = showDissentBanner
+        ? (
+            <div
+              key="dissent-banner"
+              data-dissent-banner=""
+              className={[
+                'rounded-sm border border-border-default',
+                'bg-surface-card px-space-3 py-space-2',
+                'text-size-sm font-family-body text-ink-700',
+                'flex flex-col gap-space-1',
+              ].join(' ')}
+            >
+              <span className="text-size-xs font-weight-medium text-ink-500 uppercase tracking-wide">
+                The Critic wasn&rsquo;t convinced
+              </span>
+              <p className="leading-relaxed whitespace-pre-wrap">
+                {criticAudit!.review}
+              </p>
+            </div>
+          )
+        : undefined;
 
       const extras: ReactNode | undefined =
         extrasFragments.length > 0 ? (
@@ -448,6 +540,7 @@ export function CouncilSessionShelf({
         stream: undefined,
         text: displayText,
         extras,
+        dissentBanner,
       });
 
       // Advise → Plan handoff. PRD §7: a phrase-match on the user's

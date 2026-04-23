@@ -7,6 +7,8 @@ const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
 const findResumableSession = vi.fn();
+const getForUserPref = vi.fn();
+const upsertPref = vi.fn();
 const REAL_UUID = 'cccccccc-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -42,6 +44,10 @@ vi.mock('@/lib/persistence/server', () => ({
     record: vi.fn(async () => {}),
     listForUser: vi.fn(async () => []),
     dailyTokenTotalForUser: vi.fn(async () => 0),
+  }),
+  getUserPreferencesRepository: () => ({
+    getForUser: (...a: unknown[]) => getForUserPref(...a),
+    upsert: (...a: unknown[]) => upsertPref(...a),
   }),
 }));
 
@@ -116,6 +122,9 @@ describe('POST /api/council/plan', () => {
     writeSummary.mockReset();
     endSession.mockReset();
     findResumableSession.mockReset();
+    getForUserPref.mockReset();
+    upsertPref.mockReset();
+    getForUserPref.mockResolvedValue(null);
     findResumableSession.mockImplementation(
       async ({ sessionId }: { sessionId: string }) => ({
         id: sessionId,
@@ -444,5 +453,99 @@ describe('POST /api/council/plan', () => {
     expect(trailer.chips).toEqual(['deadline?']);
     expect(trailer.criticAudit.review).toBe('Looks honest.');
     expect(trailer.memoryRecall.recalls[0].id).toBe('sum-all');
+  });
+
+  // -------- F25: transparency-mode trailer + server-side mode-A suppression --------
+
+  it('F25: attaches transparencyMode=B alongside reveals by default', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        critic: {
+          ran: true,
+          risk: 'medium',
+          review: 'flagged.',
+        },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('B');
+    expect(trailer.criticAudit).toBeDefined();
+  });
+
+  it('F25: passes transparencyMode=D through when the user pref is D', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'D',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        critic: { ran: true, risk: 'high', review: 'watch out.' },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('D');
+  });
+
+  it('F25: suppresses reveal artifacts server-side under mode A but still ships proposals', async () => {
+    // Mode A is "clean voice only" for reveals, but proposals are user-
+    // action affordances (not a reveal) — the board needs them to let
+    // the user tap Accept. The trailer drops criticAudit/memoryRecall
+    // and omits transparencyMode (attached only when reveals present).
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText:
+          '```json-plan\n{"tasks":["t1"],"chips":["scope?"]}\n```',
+        critic: { ran: true, risk: 'high', review: 'would normally flag.' },
+        recalledSummaries: [
+          {
+            id: 'sum-drop',
+            content: 'would normally surface.',
+            sessionId: 'sess-drop',
+            createdAt: '2026-04-10T00:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    // Proposals survive (they're an affordance, not a reveal).
+    expect(trailer.proposals).toHaveLength(1);
+    expect(trailer.chips).toEqual(['scope?']);
+    // Reveal artifacts were dropped server-side.
+    expect(trailer.criticAudit).toBeUndefined();
+    expect(trailer.memoryRecall).toBeUndefined();
+    // No reveals → no transparencyMode attached (keeps wire clean).
+    expect(trailer.transparencyMode).toBeUndefined();
+  });
+
+  it('F25: under mode A with no proposals + no chips, emits no trailer at all', async () => {
+    // Same server-side suppression as the chat route: when only reveal
+    // artifacts would have applied, mode A strips the whole trailer.
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'I can draft this — tell me the scope.',
+        critic: { ran: true, risk: 'low', review: 'ok.' },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan?' }));
+    expect(await res.text()).toBe('here is the plan…');
   });
 });

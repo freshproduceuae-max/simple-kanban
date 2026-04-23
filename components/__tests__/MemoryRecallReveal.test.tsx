@@ -144,6 +144,41 @@ describe('MemoryRecallReveal', () => {
       document.querySelector('[data-memory-recall-truncation]'),
     ).toBeNull();
   });
+
+  // -------- F25 — defaultOpen + showSourceGlyph --------
+
+  it('F25: defaultOpen expands the panel at mount without needing a click', () => {
+    render(<MemoryRecallReveal audit={ONE} defaultOpen />);
+    expect(
+      screen.getByRole('button', { name: /hide what i remembered/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('F25: showSourceGlyph renders the [R] glyph inside the trigger (mode C)', () => {
+    render(<MemoryRecallReveal audit={ONE} showSourceGlyph />);
+    const glyph = document.querySelector('[data-memory-recall-glyph="R"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph?.textContent).toBe('[R]');
+    expect(glyph).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('F25: showSourceGlyph is false by default — no glyph for modes A/B/D', () => {
+    render(<MemoryRecallReveal audit={ONE} />);
+    expect(document.querySelector('[data-memory-recall-glyph]')).toBeNull();
+  });
+
+  it('F25: initialOpen and defaultOpen both default to collapsed', () => {
+    render(
+      <MemoryRecallReveal
+        audit={ONE}
+        defaultOpen={false}
+        initialOpen={false}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: /i remembered/i }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 
 describe('formatRecallDate', () => {

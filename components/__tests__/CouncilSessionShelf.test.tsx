@@ -663,6 +663,224 @@ describe('CouncilSessionShelf', () => {
     ).not.toBeInTheDocument();
   });
 
+  // -------- F25 — transparency-mode gating on the shelf --------
+
+  it('F25: mode C attaches source glyphs to both reveals ([R] and [C])', async () => {
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: {
+        risk: 'low',
+        review: 'fine.',
+        preDraft: 'draft.',
+      },
+      memoryRecall: {
+        recalls: [
+          {
+            id: 'sum-c',
+            sessionId: 'sess-c',
+            createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+            snippet: 'prior note',
+          },
+        ],
+      },
+      transparencyMode: 'C',
+    };
+    const { impl } = recordFetch([
+      () => streamingResponse(['ok.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/ok/)).toBeInTheDocument(),
+    );
+    // Both glyphs render alongside their triggers.
+    expect(
+      document.querySelector('[data-how-i-got-here-glyph="C"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-memory-recall-glyph="R"]'),
+    ).not.toBeNull();
+  });
+
+  it('F25: mode D opens the "How I got here" reveal by default', async () => {
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: {
+        risk: 'medium',
+        review: 'soften the commitment.',
+        preDraft: 'ship Thursday.',
+      },
+      transparencyMode: 'D',
+    };
+    const { impl } = recordFetch([
+      () => streamingResponse(['ok.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    // Reveal opens without a click: the review text is visible right away.
+    await waitFor(() =>
+      expect(screen.getByText(/soften the commitment/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole('button', { name: /hide how i got here/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('F25: mode D + high risk renders the dissent banner ABOVE the reply body', async () => {
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: {
+        risk: 'high',
+        review: 'the draft commits without a rollback plan.',
+        preDraft: 'ship friday.',
+      },
+      transparencyMode: 'D',
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse([
+          'the body text.',
+          '\n' + JSON.stringify(trailer),
+        ]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/the body text/i)).toBeInTheDocument(),
+    );
+    const banner = document.querySelector('[data-dissent-banner]');
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toMatch(/wasn.t convinced/i);
+    expect(banner?.textContent).toMatch(/rollback plan/i);
+    // Banner is rendered inside the pre-body slot, not in the extras
+    // stack — pin the DOM order: dissent-banner wrapper comes before
+    // the turn body.
+    const turn = document.querySelector('[data-turn-role="council"]');
+    const bannerWrapper = turn?.querySelector('[data-turn-dissent]');
+    const body = turn?.querySelector('[data-turn-body]');
+    expect(bannerWrapper).not.toBeNull();
+    expect(body).not.toBeNull();
+    // bannerWrapper must appear before the body in the DOM tree.
+    if (bannerWrapper && body) {
+      const position = bannerWrapper.compareDocumentPosition(body);
+      // eslint-disable-next-line no-bitwise
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('F25: mode D + medium risk does NOT render the dissent banner (only high-risk trips it)', async () => {
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: {
+        risk: 'medium',
+        review: 'soften the commitment.',
+        preDraft: 'ship thursday.',
+      },
+      transparencyMode: 'D',
+    };
+    const { impl } = recordFetch([
+      () => streamingResponse(['body.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/body/)).toBeInTheDocument(),
+    );
+    expect(document.querySelector('[data-dissent-banner]')).toBeNull();
+  });
+
+  it('F25: client belt-and-braces — even if the server leaks a criticAudit under mode A, the shelf still suppresses the reveal', async () => {
+    // The server already short-circuits reveal artifacts under mode A,
+    // but a stale client that changes modes mid-session might receive a
+    // trailer with reveals and transparencyMode=A. The shelf must still
+    // honour the current mode and drop the reveals.
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: {
+        risk: 'medium',
+        review: 'would normally flag.',
+        preDraft: 'would normally show.',
+      },
+      memoryRecall: {
+        recalls: [
+          {
+            id: 'sum-leak',
+            sessionId: 'sess-leak',
+            createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+            snippet: 'leaked snippet',
+          },
+        ],
+      },
+      transparencyMode: 'A',
+    };
+    const { impl } = recordFetch([
+      () => streamingResponse(['body.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/body/)).toBeInTheDocument(),
+    );
+    // Neither reveal renders.
+    expect(
+      screen.queryByRole('button', { name: /how i got here/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /i remembered/i }),
+    ).toBeNull();
+  });
+
+  it('F25: default mode B (no transparencyMode in trailer) leaves reveals collapsed on-tap', async () => {
+    // Trailer does not include transparencyMode — the client defaults
+    // to 'B' (reveal-on-demand). Reveals render collapsed.
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: {
+        risk: 'low',
+        review: 'looks honest.',
+        preDraft: 'body.',
+      },
+    };
+    const { impl } = recordFetch([
+      () => streamingResponse(['body.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/body/)).toBeInTheDocument(),
+    );
+    const trigger = screen.getByRole('button', { name: /how i got here/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // No glyph under mode B.
+    expect(
+      document.querySelector('[data-how-i-got-here-glyph]'),
+    ).toBeNull();
+  });
+
   it('gates chip follow-up submissions through the same inFlight lock as the input', async () => {
     const user = userEvent.setup();
     // 1) Plan turn with a single chip and 2) a held plan turn the
