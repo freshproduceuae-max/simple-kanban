@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getAuthedUserId } from '@/lib/auth/current-user';
+
+// F22a — Vercel runtime pins for the Council streaming routes.
+// See app/api/council/plan/route.ts for the rationale.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 import {
   getTaskRepository,
   getCouncilMemoryRepository,

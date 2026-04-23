@@ -176,6 +176,11 @@ describe('POST /api/council/plan', () => {
     const trailer = JSON.parse(lines[lines.length - 1]);
     expect(trailer.proposals).toHaveLength(2);
     expect(Array.isArray(trailer.proposals)).toBe(true);
+    // F22a: trailer proposals carry both id + draft title so the
+    // shelf composer can render <ProposalCard> without a second
+    // fence-parse on the client.
+    expect(trailer.proposals[0]).toMatchObject({ id: expect.any(String), title: 'task a' });
+    expect(trailer.proposals[1]).toMatchObject({ id: expect.any(String), title: 'task b' });
   });
 
   it('passes the real sessionId UUID to proposal.create now that F18 has landed', async () => {
@@ -250,7 +255,10 @@ describe('POST /api/council/plan', () => {
     const res = await planRoute(req({ userInput: 'plan' }));
     const body = await res.text();
     const trailer = JSON.parse(body.split('\n').at(-1) as string);
-    expect(trailer.proposals).toEqual(['p1', 'p3']);
+    expect(trailer.proposals).toEqual([
+      { id: 'p1', title: 'a' },
+      { id: 'p3', title: 'c' },
+    ]);
   });
 
   it('honors a client-provided UUID sessionId', async () => {
