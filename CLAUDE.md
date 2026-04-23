@@ -61,6 +61,15 @@ Agent split: v0.4 is by domain (P1 deviation); v0.5+ snaps back to lifecycle (P2
 - **Token budgets (v0.4 soft ceilings):** morning greeting ≤ 5k, Plan session ≤ 40k, Chat turn ≤ 10k. Instrument per-call cost from day one.
 - **Latency (v0.4, aspirational at vision level):** no hard ms targets set here. Real SLOs are set in the v0.4 PRD after the first thin slice is measured. What is committed: no live web research on the greeting, no full session-log fetch pre-reply, no Critic pass on warm chat turns below the risk threshold, no synchronous audit-trail assembly. See `docs/prd/vision.md` §9.
 - **Failure policy:** Researcher fail-visible, Critic fail-quiet + server alert, Consolidator fail-hard. Anthropic 429 → soft pause + 30s client queue + backoff. On any failure, structured-state email to developer.
+- **Milestone-cut preservation (git + Vercel):** every milestone cut (alpha / beta / final) is preserved permanently so no later version clobbers an earlier one. Applies to every release (v0.4, v0.5, v0.6, v1.0, …).
+    - **Git (two pointers per cut, both pushed):**
+        - Annotated tag `v<release>-<milestone>` — e.g. `v0.4.0-alpha`, `v0.4.0-beta`, `v0.4.0`. Immutable.
+        - Long-lived branch `release/v<release>-<milestone>` at the same commit — e.g. `release/v0.4-alpha`. Only moves for an explicit hotfix.
+    - **Vercel (named alias per cut, pinned to the specific deployment id):**
+        - After merging the milestone-closing PR, grab the production deployment id for that commit and alias it to `simple-kanban-v<release-hyphens>-<milestone>.vercel.app` — e.g. `simple-kanban-v0-4-alpha.vercel.app`, `simple-kanban-v0-4-beta.vercel.app`, `simple-kanban-v0-4.vercel.app` (final drops the suffix). Alias the deployment, never the branch — branch aliases roll forward with new pushes.
+        - Command shape: `npx vercel alias set <deployment-url> <target-host> --scope <team>`.
+    - **Floating URLs stay floating.** `simple-kanban-ebon.vercel.app`, the `-git-main-` alias, and the project-default host continue to represent "latest main" and are allowed to roll forward with beta/final work. The versioned aliases are the durable ones.
+    - Pitfall: pushing `release/v…` at the same SHA as `main` does **not** create a distinct Vercel preview — Vercel de-duplicates. The versioned alias is what guarantees survival, not the branch push. (Added 2026-04-22 after the v0.4.0-alpha cut.)
 
 ## Voice + design
 
