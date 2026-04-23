@@ -24,8 +24,10 @@ vi.mock('next/navigation', () => ({
 
 import CouncilSettingsPage from '../page';
 
-async function renderPage(): Promise<string> {
-  const element = await CouncilSettingsPage();
+async function renderPage(
+  props: Parameters<typeof CouncilSettingsPage>[0] = {},
+): Promise<string> {
+  const element = await CouncilSettingsPage(props);
   return renderToStaticMarkup(element);
 }
 
@@ -87,5 +89,68 @@ describe('CouncilSettingsPage (F25)', () => {
     } finally {
       console.warn = original;
     }
+  });
+
+  // F29 — "Delete all history" section + post-action banner.
+  describe('delete-all form + banner (F29)', () => {
+    it('renders the danger-zone section with both two-step gates', async () => {
+      const html = await renderPage();
+      expect(html).toContain('data-settings-section="delete-history"');
+      expect(html).toContain('data-settings-delete-form=""');
+      expect(html).toContain('data-settings-delete-confirm=""');
+      expect(html).toContain('data-settings-delete-phrase=""');
+      expect(html).toContain('data-settings-delete-submit=""');
+      // The literal phrase the user must type is surfaced inline.
+      expect(html).toContain('delete my history');
+    });
+
+    it('shows a success banner with the deleted count on ?deleted=N', async () => {
+      const html = await renderPage({ searchParams: { deleted: '3' } });
+      expect(html).toContain('data-settings-delete-notice="success"');
+      expect(html).toContain('Deleted 3 sessions');
+    });
+
+    it('uses singular copy when only one session was deleted', async () => {
+      const html = await renderPage({ searchParams: { deleted: '1' } });
+      expect(html).toContain('Deleted 1 session ');
+    });
+
+    it('shows an "already empty" banner on ?deleted=0', async () => {
+      const html = await renderPage({ searchParams: { deleted: '0' } });
+      expect(html).toContain('data-settings-delete-notice="success"');
+      expect(html).toContain('already empty');
+    });
+
+    it('shows the expected error banner for every known deleteError code', async () => {
+      for (const code of [
+        'confirm-required',
+        'phrase-mismatch',
+        'failed',
+      ] as const) {
+        const html = await renderPage({
+          searchParams: { deleteError: code },
+        });
+        expect(html).toContain('data-settings-delete-notice="error"');
+      }
+    });
+
+    it('does NOT render the banner when the params are absent or bogus', async () => {
+      expect(await renderPage()).not.toContain(
+        'data-settings-delete-notice',
+      );
+      // Unknown error code → no banner.
+      expect(
+        await renderPage({ searchParams: { deleteError: 'nonsense' } }),
+      ).not.toContain('data-settings-delete-notice');
+      // Non-integer deleted value → no banner.
+      expect(
+        await renderPage({ searchParams: { deleted: 'abc' } }),
+      ).not.toContain('data-settings-delete-notice');
+      // Negative deleted value → no banner (the action never sets
+      // this; a hand-crafted URL should be treated as noise).
+      expect(
+        await renderPage({ searchParams: { deleted: '-1' } }),
+      ).not.toContain('data-settings-delete-notice');
+    });
   });
 });

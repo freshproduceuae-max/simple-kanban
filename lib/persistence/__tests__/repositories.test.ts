@@ -30,6 +30,18 @@ describe('persistence repositories (stubs)', () => {
       repo.searchSessionsForUser({ userId: 'u1' }),
     ).rejects.toThrow(/F28/);
   });
+  it('SessionRepository.deleteSession stub throws with feature-id hint (F29)', async () => {
+    const repo = new SessionRepositoryNotImplemented();
+    await expect(
+      repo.deleteSession({ sessionId: 'session-1', userId: 'u1' }),
+    ).rejects.toThrow(/F29/);
+  });
+  it('SessionRepository.deleteAllSessionsForUser stub throws with feature-id hint (F29)', async () => {
+    const repo = new SessionRepositoryNotImplemented();
+    await expect(
+      repo.deleteAllSessionsForUser({ userId: 'u1' }),
+    ).rejects.toThrow(/F29/);
+  });
   it('ProposalRepository stub throws with feature-id hint', async () => {
     const repo = new ProposalRepositoryNotImplemented();
     await expect(repo.findById({ id: 'p1', userId: 'u1' })).rejects.toThrow(/F12/);

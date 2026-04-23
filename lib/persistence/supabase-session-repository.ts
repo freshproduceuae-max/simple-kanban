@@ -351,6 +351,53 @@ export class SupabaseSessionRepository implements SessionRepository {
     return (data ?? []) as CouncilSessionStatsRow[];
   }
 
+  async deleteSession(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<boolean> {
+    // Scoped by `(id, user_id)` on top of RLS so a mis-scoped call
+    // fails to find a row rather than silently mutating someone
+    // else's data. Cascade FKs (migrations 003, 004, 006, 007) remove
+    // every dependent row in a single statement — see the interface
+    // doc comment for the full chain.
+    //
+    // `.select('id')` makes PostgREST return the row(s) it deleted.
+    // An empty array means the id didn't match (stale link, already-
+    // purged row) — we return `false` so the caller can surface a
+    // "nothing to do" path rather than a confusing "deleted!" toast.
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .delete()
+      .eq('id', input.sessionId)
+      .eq('user_id', input.userId)
+      .select('id');
+    if (error)
+      throw new Error(`SessionRepository.deleteSession: ${error.message}`);
+    return ((data as Array<{ id: string }> | null) ?? []).length > 0;
+  }
+
+  async deleteAllSessionsForUser(input: {
+    userId: string;
+  }): Promise<number> {
+    // `.delete()` in PostgREST requires at least one filter to avoid
+    // wiping a whole table — `.eq('user_id', ...)` is both the safety
+    // filter and the scope. Returns the count of removed session rows
+    // so the caller can surface "deleted N sessions" on the confirm
+    // toast. Dependent rows (turns, summaries, diffs, recalls) go with
+    // them via cascade; proposals keep the row with `session_id` set
+    // to null by design.
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .delete()
+      .eq('user_id', input.userId)
+      .select('id');
+    if (error)
+      throw new Error(
+        `SessionRepository.deleteAllSessionsForUser: ${error.message}`,
+      );
+    return ((data as Array<{ id: string }> | null) ?? []).length;
+  }
+
   async listSessionsByIds(input: {
     userId: string;
     sessionIds: string[];

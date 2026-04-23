@@ -231,4 +231,58 @@ describe('HistoryPage (F28)', () => {
     // The reset link goes back to a bare /history.
     expect(html).toContain('data-history-filter-reset=""');
   });
+
+  // F29 — per-row delete button + post-action banner.
+  describe('delete button + banner (F29)', () => {
+    it('renders a Delete form with a hidden sessionId per row', async () => {
+      searchSessionsForUser.mockResolvedValueOnce([
+        statsRow({ id: 's-del-1' }),
+      ]);
+      const html = await renderPage();
+      expect(html).toContain('data-history-row-delete="s-del-1"');
+      expect(html).toContain('name="sessionId"');
+      expect(html).toContain('value="s-del-1"');
+    });
+
+    it('emits an accessible aria-label mentioning the session timestamp', async () => {
+      searchSessionsForUser.mockResolvedValueOnce([
+        statsRow({
+          id: 's-del-2',
+          started_at: '2026-04-21T12:00:00Z',
+        }),
+      ]);
+      const html = await renderPage();
+      // The exact timestamp formatting is locale-sensitive, but the
+      // aria-label must at least reference the session and be delete-
+      // intent.
+      expect(html).toMatch(/aria-label="Delete session from [^"]+"/);
+    });
+
+    it('shows a success banner on ?deleted=1', async () => {
+      const html = await renderPage({ searchParams: { deleted: '1' } });
+      expect(html).toContain('data-history-delete-notice="success"');
+      expect(html).toContain('Session deleted.');
+    });
+
+    it('shows an error banner for each recognised deleteError code', async () => {
+      for (const code of ['invalid', 'missing', 'failed'] as const) {
+        const html = await renderPage({
+          searchParams: { deleteError: code },
+        });
+        expect(html).toContain('data-history-delete-notice="error"');
+      }
+    });
+
+    it('does NOT render the banner when the params are absent', async () => {
+      const html = await renderPage();
+      expect(html).not.toContain('data-history-delete-notice');
+    });
+
+    it('does NOT render the banner for an unknown deleteError code', async () => {
+      const html = await renderPage({
+        searchParams: { deleteError: 'nonsense' },
+      });
+      expect(html).not.toContain('data-history-delete-notice');
+    });
+  });
 });

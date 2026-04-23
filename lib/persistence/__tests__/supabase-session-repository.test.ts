@@ -616,4 +616,132 @@ describe('SupabaseSessionRepository (F18)', () => {
       ).rejects.toThrow(/endSessionsForAuthSession: boom/);
     });
   });
+
+  describe('deleteSession (F29)', () => {
+    it('scopes by (id, user_id) and returns true when a row was deleted', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [{ id: 'session-1' }],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const deleted = await repo.deleteSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+      });
+
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.delete).toHaveBeenCalledTimes(1);
+      expect(builder.eq).toHaveBeenCalledWith('id', 'session-1');
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.select).toHaveBeenCalledWith('id');
+      expect(deleted).toBe(true);
+    });
+
+    it('returns false when no row matched (stale link, already-purged)', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const deleted = await repo.deleteSession({
+        sessionId: 'session-missing',
+        userId: 'u1',
+      });
+
+      expect(deleted).toBe(false);
+    });
+
+    it('treats a null data payload as no-op (false)', async () => {
+      // PostgREST occasionally returns `data: null` alongside a
+      // non-error response (empty DELETE result); coerce to false
+      // rather than exploding.
+      const builder = chain<Array<{ id: string }> | null>({
+        data: null,
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const deleted = await repo.deleteSession({
+        sessionId: 'session-x',
+        userId: 'u1',
+      });
+      expect(deleted).toBe(false);
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: null as unknown as Array<{ id: string }>,
+        error: { message: 'rls denied' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.deleteSession({ sessionId: 'session-1', userId: 'u1' }),
+      ).rejects.toThrow(/deleteSession: rls denied/);
+    });
+  });
+
+  describe('deleteAllSessionsForUser (F29)', () => {
+    it('scopes by user_id and returns the count of deleted rows', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [
+          { id: 'session-1' },
+          { id: 'session-2' },
+          { id: 'session-3' },
+        ],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const count = await repo.deleteAllSessionsForUser({ userId: 'u1' });
+
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.delete).toHaveBeenCalledTimes(1);
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      // Sanity: the user_id filter is the only scope — otherwise we'd
+      // risk a table-wide wipe if an earlier refactor dropped it.
+      expect(builder.eq).toHaveBeenCalledTimes(1);
+      expect(builder.select).toHaveBeenCalledWith('id');
+      expect(count).toBe(3);
+    });
+
+    it('returns 0 when the user has no history yet', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const count = await repo.deleteAllSessionsForUser({ userId: 'u1' });
+      expect(count).toBe(0);
+    });
+
+    it('treats null data as 0', async () => {
+      const builder = chain<Array<{ id: string }> | null>({
+        data: null,
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const count = await repo.deleteAllSessionsForUser({ userId: 'u1' });
+      expect(count).toBe(0);
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: null as unknown as Array<{ id: string }>,
+        error: { message: 'constraint fail' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.deleteAllSessionsForUser({ userId: 'u1' }),
+      ).rejects.toThrow(/deleteAllSessionsForUser: constraint fail/);
+    });
+  });
 });
