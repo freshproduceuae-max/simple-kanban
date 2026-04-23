@@ -1,7 +1,8 @@
-export type { BoardColumn, CouncilMode, CouncilAgent, RiskLevel, TransparencyMode, ProposalStatus } from './types';
+export type { BoardColumn, CouncilMode, CouncilAgent, RiskLevel, TransparencyMode, ProposalStatus, SessionOutcome } from './types';
 export type {
   TaskRow,
   CouncilSessionRow,
+  CouncilSessionStatsRow,
   CouncilTurnRow,
   CouncilMemorySummaryRow,
   CouncilProposalRow,
@@ -25,7 +26,7 @@ export {
 } from './supabase-council-memory-repository';
 
 export { SessionRepositoryNotImplemented } from './session-repository';
-export type { SessionRepository } from './session-repository';
+export type { SessionRepository, SearchSessionsOptions } from './session-repository';
 export {
   SupabaseSessionRepository,
   DEFAULT_SESSIONS_PAGE_SIZE,

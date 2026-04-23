@@ -1,4 +1,41 @@
-import type { CouncilMode, CouncilSessionRow, CouncilTurnRow } from './types';
+import type {
+  CouncilMode,
+  CouncilSessionRow,
+  CouncilSessionStatsRow,
+  CouncilTurnRow,
+  SessionOutcome,
+} from './types';
+
+/**
+ * F28 — input shape for `searchSessionsForUser`. Every field is
+ * optional; the call with no options is the empty-filter default
+ * ("most-recent 25 sessions"), same as what the bare
+ * `/history` page did before F28 landed.
+ *
+ * `cursor` continues to be a `started_at` ISO string — strict `lt`
+ * against the last row on the previous page, matching the keyset
+ * pattern `listSessionsForUser` already uses.
+ */
+export interface SearchSessionsOptions {
+  /** Full-text query. Matches `to_tsvector('english', content)` on council_turns. Empty/whitespace = no query. */
+  query?: string;
+  /** Allow-list of modes. Empty or undefined = all modes. */
+  modes?: readonly CouncilMode[];
+  /** Lower bound on `started_at`, inclusive. ISO string. */
+  dateFrom?: string;
+  /** Upper bound on `started_at`, inclusive. ISO string. */
+  dateTo?: string;
+  /** Lower bound on `tokens_in_sum + tokens_out_sum`. */
+  tokenMin?: number;
+  /** Upper bound on `tokens_in_sum + tokens_out_sum`. */
+  tokenMax?: number;
+  /** Allow-list of outcomes (empty / ongoing / done). Empty or undefined = all. */
+  outcomes?: readonly SessionOutcome[];
+  /** Page size. Clamped [1, 100]. Defaults to 25. */
+  limit?: number;
+  /** Keyset cursor — `started_at` ISO from the last row on the previous page. */
+  cursor?: string;
+}
 
 /** Fills in at F18 / F19. */
 export interface SessionRepository {
@@ -80,6 +117,23 @@ export interface SessionRepository {
     userId: string;
     sessionIds: string[];
   }): Promise<CouncilSessionRow[]>;
+  /**
+   * F28 — filtered + searchable session list with per-session token
+   * totals and derived outcome, for `/history`. Reads from the
+   * `council_sessions_with_stats` view (migration 015). When
+   * `opts.query` is set the implementation must first resolve the
+   * matching session ids via a FTS query against
+   * `council_turns.content_fts`, then intersect the view read with
+   * those ids — this keeps the GIN index usable rather than
+   * pre-aggregating tsvectors at the session level.
+   *
+   * Keyset pagination uses `started_at desc` with strict `lt` against
+   * `opts.cursor`, same shape as `listSessionsForUser`.
+   */
+  searchSessionsForUser(input: {
+    userId: string;
+    opts?: SearchSessionsOptions;
+  }): Promise<CouncilSessionStatsRow[]>;
 }
 
 export class SessionRepositoryNotImplemented implements SessionRepository {
@@ -130,5 +184,11 @@ export class SessionRepositoryNotImplemented implements SessionRepository {
     sessionIds: string[];
   }): Promise<CouncilSessionRow[]> {
     throw new Error('SessionRepository: implementation lands with F27');
+  }
+  async searchSessionsForUser(_input: {
+    userId: string;
+    opts?: SearchSessionsOptions;
+  }): Promise<CouncilSessionStatsRow[]> {
+    throw new Error('SessionRepository: implementation lands with F28');
   }
 }
