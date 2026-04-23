@@ -17,6 +17,7 @@ import { MemoryRecallReveal } from './MemoryRecallReveal';
 import { ShelfInput } from './ShelfInput';
 import { TurnList, type ShelfTurn, type ShelfTurnSoftPause } from './TurnList';
 import { openCouncilStream } from './stream-helpers';
+import { markOnce } from '@/lib/observability/client-marks';
 import type { SoftPauseFrame } from '@/lib/council/shared/soft-pause-frame';
 import type { CriticAudit } from '@/lib/council/server/critic-audit';
 import type {
@@ -231,6 +232,14 @@ export function CouncilSessionShelf({
   const [mode, setMode] = useState<Mode>('chat');
   const [turns, setTurns] = useState<ShelfTurn[]>([]);
   const [inFlight, setInFlight] = useState(false);
+  // F31 — late autofocus flag. We deliberately don't focus the shelf
+  // input on mount: the greeting stream is reading first and a cursor
+  // blinking in the composer below competes for the user's attention.
+  // The flag flips once the greeting lands (or immediately if the
+  // parent opted out of greetingOnMount), and ShelfInput picks it up
+  // to imperatively focus. Returning users with `greetingOnMount=false`
+  // land ready-to-type.
+  const [greetingComplete, setGreetingComplete] = useState(!greetingOnMount);
   // Ref mirror of `inFlight` so stale closures (e.g. a ChipInput
   // rendered as part of an earlier turn's `extras`) can gate their
   // own submission without re-rendering. The setter keeps both in
@@ -254,6 +263,10 @@ export function CouncilSessionShelf({
   // Initial session-id hydration on mount.
   useEffect(() => {
     sessionIdRef.current = loadSessionId();
+    // F31 — first beacon of the onboarding path timer. Tracks the
+    // "time the shelf became live" boundary so the stopwatch QA
+    // protocol can subtract navigationStart from this.
+    markOnce('council:session-mount');
   }, []);
 
   /**
@@ -587,6 +600,10 @@ export function CouncilSessionShelf({
   const fireTurn = useCallback(
     (runMode: Mode, userInput: string) => {
       if (inFlightRef.current) return;
+      // F31 — beacon: time the first user submit against session-mount
+      // to measure "how long until they said something." Fires once
+      // for the first turn of the session regardless of mode.
+      markOnce('council:first-user-submit');
       setBusy(true);
       appendUserTurn(userInput);
       void (async () => {
@@ -614,6 +631,15 @@ export function CouncilSessionShelf({
 
     let cancelled = false;
     let cancelActive: (() => Promise<void>) | null = null;
+    // F31 — fire the greeting-complete mark alongside the state flag so
+    // every termination branch (stream-ok, re-entry, bad-payload, 5xx,
+    // throw) lights up the same beacon. Keeps the three setter sites
+    // below honest about the invariant: "gate open == beacon fired."
+    const completeGreeting = () => {
+      if (cancelled) return;
+      setGreetingComplete(true);
+      markOnce('council:greeting-complete');
+    };
     (async () => {
       try {
         const response = await doFetch('/api/council/greeting', {
@@ -621,7 +647,15 @@ export function CouncilSessionShelf({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ tz: detectTimezone() }),
         });
-        if (cancelled || !response.ok) return;
+        if (cancelled) return;
+        if (!response.ok) {
+          // Server returned non-2xx — surface a silent release of the
+          // autofocus gate per F31 so the user can still type into the
+          // composer. No toast or error chrome; the Council greeting
+          // is a bonus, not a prerequisite.
+          completeGreeting();
+          return;
+        }
         const greetKind = response.headers.get('x-greeting-kind');
         if (greetKind === 'full' && response.body) {
           // Full greeting: stream it like any Council turn but with no
@@ -663,20 +697,30 @@ export function CouncilSessionShelf({
             saveSessionId(echoedId);
           }
           updateTurn(turnId, { stream: undefined, text: fullText });
+          completeGreeting();
         } else {
           // Re-entry: JSON { kind: 'reentry', text: '...' }
           const payload = (await response.json().catch(() => null)) as {
             text?: string;
           } | null;
-          if (cancelled || !payload?.text) return;
+          if (cancelled || !payload?.text) {
+            // Empty/malformed re-entry payload is still a "greeting
+            // done" signal for the autofocus flag — the shelf is idle.
+            completeGreeting();
+            return;
+          }
           appendCouncilTurn({
             kind: 'council',
             id: nextTurnId('g'),
             text: payload.text,
           });
+          completeGreeting();
         }
       } catch {
-        /* greeting is best-effort */
+        // Greeting is best-effort; still release the autofocus gate so
+        // the user isn't locked out of typing because the greeting
+        // route errored.
+        completeGreeting();
       }
     })();
 
@@ -713,6 +757,7 @@ export function CouncilSessionShelf({
         onSubmit={onSubmit}
         disabled={inFlight}
         placeholder={modePlaceholder}
+        autoFocus={greetingComplete}
       />
     </div>
   );

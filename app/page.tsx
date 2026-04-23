@@ -25,9 +25,25 @@ export default async function Page() {
       </main>
     );
   }
+  // F31 — first-run cue. A brand-new user lands here with an empty
+  // board and no idea what to do next. The Council shelf below speaks
+  // first (greetingOnMount fires in CouncilSessionShelf), but without
+  // this line the three blank columns read as "broken" for the second
+  // or two it takes the greeting to stream. The hint points the user
+  // at the shelf without prescribing what to type.
+  const isEmptyBoard = result.value.length === 0;
   return (
     <>
       <Board initialTasks={result.value} />
+      {isEmptyBoard ? (
+        <p
+          data-first-run-hint=""
+          role="status"
+          className="mx-auto max-w-6xl px-space-4 py-space-2 text-size-sm italic text-ink-500"
+        >
+          No tasks yet. Ask the Council to help you plan something.
+        </p>
+      ) : null}
       <CouncilShelf initialOpen>
         <CouncilSessionShelf />
       </CouncilShelf>
