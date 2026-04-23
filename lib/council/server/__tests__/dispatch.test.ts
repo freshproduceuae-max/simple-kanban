@@ -46,18 +46,27 @@ function makeStream(chunks: string[]): AsyncIterable<string> {
   };
 }
 
-function defaultConsolidatorReturn(text = 'council reply') {
+function defaultConsolidatorReturn(text = 'council reply', turnId: string | null = 'consolidator-turn-1') {
   return {
     stream: makeStream([text]),
-    done: Promise.resolve({ text, mode: 'chat', tokensIn: 0, tokensOut: 0 }),
+    done: Promise.resolve({
+      text,
+      mode: 'chat',
+      tokensIn: 0,
+      tokensOut: 0,
+      turnId,
+    }),
   };
 }
+
+const writeRecallMock = vi.fn(async () => ({}));
 
 const deps = {
   sessionRepo: { appendTurn: vi.fn() } as unknown as Parameters<typeof runCouncilTurn>[1]['sessionRepo'],
   memoryRepo: {
     listSummariesForUser: vi.fn().mockResolvedValue([]),
     writeSummary: vi.fn(),
+    writeRecall: writeRecallMock,
   } as unknown as Parameters<typeof runCouncilTurn>[1]['memoryRepo'],
 };
 
@@ -67,6 +76,7 @@ describe('runCouncilTurn', () => {
     consolidateMock.mockReset();
     critiqueMock.mockReset();
     reportAgentErrorMock.mockClear();
+    writeRecallMock.mockReset();
     __resetSessionCacheForTests();
     researchMock.mockResolvedValue({
       ok: true,
@@ -74,6 +84,7 @@ describe('runCouncilTurn', () => {
       toolCalls: [],
       tokensIn: 5,
       tokensOut: 10,
+      recalledSummaries: [],
     });
     consolidateMock.mockResolvedValue(defaultConsolidatorReturn());
     critiqueMock.mockResolvedValue({
@@ -136,6 +147,7 @@ describe('runCouncilTurn', () => {
       toolCalls: [],
       tokensIn: 0,
       tokensOut: 0,
+      recalledSummaries: [],
     });
     await runCouncilTurn(
       {
@@ -480,6 +492,257 @@ describe('runCouncilTurn', () => {
     };
     expect(payload.failureClass).toBe('daily_cap_hit');
     expect(payload.agent).toBe('consolidator');
+  });
+
+  // -------- F24: writeRecall integration --------
+
+  it('F24: writes one memory_recalls row per surfaced summary when turnId is present', async () => {
+    researchMock.mockResolvedValueOnce({
+      ok: true,
+      text: 'found X',
+      toolCalls: [],
+      tokensIn: 0,
+      tokensOut: 0,
+      recalledSummaries: [
+        {
+          id: 'sum-1',
+          content: 'prior summary A',
+          sessionId: 'sess-A',
+          createdAt: '2026-04-20T00:00:00Z',
+        },
+        {
+          id: 'sum-2',
+          content: 'prior summary B',
+          sessionId: 'sess-B',
+          createdAt: '2026-04-19T00:00:00Z',
+        },
+      ],
+    });
+    consolidateMock.mockResolvedValueOnce(
+      defaultConsolidatorReturn('reply', 'turn-happy-123'),
+    );
+
+    const { stream, done } = await runCouncilTurn(
+      {
+        userId: 'u-rec',
+        sessionId: 's-rec',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      deps,
+    );
+    for await (const _ of stream) void _;
+    await done;
+
+    expect(writeRecallMock).toHaveBeenCalledTimes(2);
+    const first = writeRecallMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(first.turn_id).toBe('turn-happy-123');
+    expect(first.user_id).toBe('u-rec');
+    // v0.4: summaries, not turns → explicit null on source_turn_id.
+    expect(first.source_turn_id).toBeNull();
+    expect(first.snippet).toBe('prior summary A');
+    const second = writeRecallMock.mock.calls[1][0] as Record<string, unknown>;
+    expect(second.snippet).toBe('prior summary B');
+  });
+
+  it('F24: skips writeRecall entirely when the Consolidator persistence failed (turnId=null)', async () => {
+    // Missing turnId means persistTurn inside the Consolidator threw or
+    // returned no row — a null FK would orphan the recall, so dispatch
+    // refuses to write instead of inserting with a bogus parent.
+    researchMock.mockResolvedValueOnce({
+      ok: true,
+      text: 'x',
+      toolCalls: [],
+      tokensIn: 0,
+      tokensOut: 0,
+      recalledSummaries: [
+        {
+          id: 'sum-1',
+          content: 'prior summary',
+          sessionId: 'sess-A',
+          createdAt: '2026-04-20T00:00:00Z',
+        },
+      ],
+    });
+    consolidateMock.mockResolvedValueOnce(
+      defaultConsolidatorReturn('reply', null),
+    );
+
+    const { stream, done } = await runCouncilTurn(
+      {
+        userId: 'u-null',
+        sessionId: 's-null',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      deps,
+    );
+    for await (const _ of stream) void _;
+    await done;
+
+    expect(writeRecallMock).not.toHaveBeenCalled();
+  });
+
+  it('F24: skips writeRecall when the Researcher surfaced no summaries', async () => {
+    // Default researchMock returns empty recalledSummaries; the happy
+    // path turnId is present. Even so, no writes fire.
+    consolidateMock.mockResolvedValueOnce(
+      defaultConsolidatorReturn('reply', 'turn-abc'),
+    );
+    const { stream, done } = await runCouncilTurn(
+      {
+        userId: 'u-empty',
+        sessionId: 's-empty',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      deps,
+    );
+    for await (const _ of stream) void _;
+    await done;
+    expect(writeRecallMock).not.toHaveBeenCalled();
+  });
+
+  it('F24: swallows writeRecall errors — done still resolves with the turn result', async () => {
+    // A recall-write bug must NOT take down the user-facing reply. The
+    // critic also runs even when recall writes fail, so this test pins
+    // both: dispatch returns the full result, and nothing throws.
+    researchMock.mockResolvedValueOnce({
+      ok: true,
+      text: 'x',
+      toolCalls: [],
+      tokensIn: 0,
+      tokensOut: 0,
+      recalledSummaries: [
+        {
+          id: 'sum-1',
+          content: 'prior summary',
+          sessionId: 'sess-A',
+          createdAt: '2026-04-20T00:00:00Z',
+        },
+      ],
+    });
+    consolidateMock.mockResolvedValueOnce(
+      defaultConsolidatorReturn('reply', 'turn-writefail'),
+    );
+    writeRecallMock.mockRejectedValueOnce(new Error('recall insert exploded'));
+    const log = vi.fn();
+
+    const { stream, done } = await runCouncilTurn(
+      {
+        userId: 'u-writefail',
+        sessionId: 's-writefail',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      { ...deps, log },
+    );
+    for await (const _ of stream) void _;
+    const result = await done;
+
+    expect(writeRecallMock).toHaveBeenCalledTimes(1);
+    expect(result.text).toBe('reply');
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/writeRecall failed/),
+      expect.any(Error),
+    );
+  });
+
+  it('F24: writes complete before `done` resolves (callers observe a consistent DB state)', async () => {
+    // F28 history + the client's own renderer read from DB right after
+    // the turn ends. Awaiting recallWritesPromise inside `done` avoids
+    // a race where those consumers see the reply but not yet the
+    // recall rows.
+    let writeResolved = false;
+    let resolveWrite!: () => void;
+    const writePromise = new Promise<unknown>((r) => {
+      resolveWrite = () => {
+        writeResolved = true;
+        r({});
+      };
+    });
+    writeRecallMock.mockImplementationOnce(() => writePromise);
+
+    researchMock.mockResolvedValueOnce({
+      ok: true,
+      text: 'x',
+      toolCalls: [],
+      tokensIn: 0,
+      tokensOut: 0,
+      recalledSummaries: [
+        {
+          id: 'sum-1',
+          content: 's',
+          sessionId: 'sess-A',
+          createdAt: '2026-04-20T00:00:00Z',
+        },
+      ],
+    });
+    consolidateMock.mockResolvedValueOnce(
+      defaultConsolidatorReturn('reply', 'turn-race'),
+    );
+
+    const { stream, done } = await runCouncilTurn(
+      {
+        userId: 'u-race',
+        sessionId: 's-race',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      deps,
+    );
+    for await (const _ of stream) void _;
+
+    // Race `done` against a microtask-flush — if recallWritesPromise is
+    // NOT awaited, `done` resolves first and we'd see writeResolved=false.
+    let doneResolved = false;
+    void done.then(() => {
+      doneResolved = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(doneResolved).toBe(false);
+    expect(writeResolved).toBe(false);
+    resolveWrite();
+    await done;
+    expect(writeResolved).toBe(true);
+  });
+
+  it('F24: surfaces recalledSummaries on done.researcher so the route can build a trailer fragment', async () => {
+    researchMock.mockResolvedValueOnce({
+      ok: true,
+      text: 'ok',
+      toolCalls: [],
+      tokensIn: 0,
+      tokensOut: 0,
+      recalledSummaries: [
+        {
+          id: 'sum-99',
+          content: 'remembered thing',
+          sessionId: 'sess-99',
+          createdAt: '2026-04-20T00:00:00Z',
+        },
+      ],
+    });
+    const { stream, done } = await runCouncilTurn(
+      {
+        userId: 'u-ret',
+        sessionId: 's-ret',
+        mode: 'chat',
+        userInput: 'hi',
+        webEnabled: false,
+      },
+      deps,
+    );
+    for await (const _ of stream) void _;
+    const result = await done;
+    expect(result.researcher.recalledSummaries).toHaveLength(1);
+    expect(result.researcher.recalledSummaries[0].id).toBe('sum-99');
   });
 
   it('on session-cap cut (daily not hit): reportAgentError fires with failureClass "session_cap_hit"', async () => {

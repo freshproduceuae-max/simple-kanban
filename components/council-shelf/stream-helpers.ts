@@ -1,11 +1,18 @@
 'use client';
 
+import {
+  META_FRAME_PREFIX,
+  peelSoftPauseFrames,
+  type SoftPauseFrame,
+} from '@/lib/council/shared/soft-pause-frame';
+
 /**
  * F22a — Council stream helpers.
  *
  * The Council mode routes (`/api/council/chat|plan|advise`) all share
  * the same response shape:
  *
+ *   <optional `__council_meta__:...\n` leader frames — F30 soft-pause>
  *   <streamed Consolidator text, chunk-by-chunk>
  *   \n
  *   <optional JSON trailer frame on its own final line>
@@ -13,7 +20,7 @@
  * `streamCouncilReply` on the server appends the trailer as a single
  * `\n` + `JSON.stringify(payload)` chunk after the Consolidator stream
  * drains (see `lib/council/server/stream-response.ts`). The client has
- * to walk two tightropes at once:
+ * to walk three tightropes at once:
  *
  *   1. Feed tokens to `<ThinkingStream>` in real-time, which consumes
  *      an `AsyncIterable<string>` and animates each arrival — so we
@@ -21,6 +28,10 @@
  *   2. Detect the trailer frame and NOT render it as display text —
  *      otherwise the user briefly sees `{"proposals":[...]}` flash in
  *      the reply before the composer strips it.
+ *   3. Peel any F30 soft-pause meta frames off the HEAD of the body
+ *      and surface them via `onSoftPause` so the shelf can flip a
+ *      "retried after Ns" indicator — without those bytes ever reaching
+ *      the token stream.
  *
  * The compromise: hold back a tail-reserve window (4 KiB — plenty for
  * any realistic trailer, trivial pause in perceived streaming). Yield
@@ -65,6 +76,20 @@ export type CouncilStreamHandle = {
   cancel: () => Promise<void>;
 };
 
+export type OpenCouncilStreamOptions = {
+  /**
+   * F30 — fires whenever a `__council_meta__:{"type":"soft-pause",...}`
+   * leader frame arrives at the head of the response body. Callers can
+   * flip a turn-local "rate-limited — retried after Ns" indicator in
+   * response. Frames are always emitted BEFORE any Consolidator tokens
+   * (the server populates them inside `retryOn429` and flushes the
+   * buffered list at stream head), so callers should treat the arrival
+   * as a historical note explaining latency rather than a live
+   * countdown. The callback may be invoked zero, one, or several times.
+   */
+  onSoftPause?: (frame: SoftPauseFrame) => void;
+};
+
 /**
  * Wrap a Response with a Council-shaped body (text/plain stream +
  * optional JSON trailer) into the live + summary pair.
@@ -73,7 +98,10 @@ export type CouncilStreamHandle = {
  * missing we resolve immediately with empty fields rather than
  * throwing — the caller can surface a "cold" error turn.
  */
-export function openCouncilStream(response: Response): CouncilStreamHandle {
+export function openCouncilStream(
+  response: Response,
+  options: OpenCouncilStreamOptions = {},
+): CouncilStreamHandle {
   const sessionId = response.headers.get('x-council-session-id');
 
   if (!response.body) {
@@ -162,16 +190,55 @@ export function openCouncilStream(response: Response): CouncilStreamHandle {
   };
 
   const result = (async () => {
+    // F30 — head-phase state. Meta frames live at the lead of the body
+    // (see `lib/council/shared/soft-pause-frame.ts`); we accumulate the
+    // lead into `headBuffer` and peel whole lines until either:
+    //   a) a line arrives that doesn't start with the meta prefix
+    //      (→ we're into Consolidator bytes — flip headDone and fold
+    //      the remainder into `tail` + `full`), or
+    //   b) the stream closes before any non-meta byte (→ nothing to
+    //      render, a historical note at most).
+    // Head-phase chunks never touch `tail` or `full`, so the existing
+    // trailer-peel + fullText math operate exclusively on body bytes.
     let tail = '';
     let full = '';
+    let headBuffer = '';
+    let headDone = false;
+
+    const advanceHead = (incoming: string) => {
+      headBuffer += incoming;
+      const { frames, rest } = peelSoftPauseFrames(headBuffer);
+      for (const frame of frames) {
+        try {
+          options.onSoftPause?.(frame);
+        } catch {
+          /* a faulty callback must not kill the stream */
+        }
+      }
+      headBuffer = rest;
+      // `rest` non-empty AND NOT starting with the prefix → we are past
+      // the head. Move `rest` into the regular body buffers. If `rest`
+      // is empty, or still starts with a (partial) prefix, keep buffering.
+      if (rest.length > 0 && !rest.startsWith(META_FRAME_PREFIX)) {
+        headDone = true;
+        tail += rest;
+        full += rest;
+        headBuffer = '';
+      }
+    };
+
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         if (!chunk) continue;
-        tail += chunk;
-        full += chunk;
+        if (!headDone) {
+          advanceHead(chunk);
+        } else {
+          tail += chunk;
+          full += chunk;
+        }
         if (tail.length > TAIL_RESERVE) {
           const yieldable = tail.slice(0, tail.length - TAIL_RESERVE);
           tail = tail.slice(tail.length - TAIL_RESERVE);
@@ -180,8 +247,23 @@ export function openCouncilStream(response: Response): CouncilStreamHandle {
       }
       const flush = decoder.decode();
       if (flush) {
-        tail += flush;
-        full += flush;
+        if (!headDone) {
+          advanceHead(flush);
+        } else {
+          tail += flush;
+          full += flush;
+        }
+      }
+      // Stream ended while still in head-phase. Anything left in the
+      // head buffer is either (a) a trailing partial meta line the
+      // server never completed, or (b) a body so short it fit entirely
+      // inside the head window (e.g. a one-token reply). Flush it
+      // through the normal body path so trailer-peel still runs and
+      // the user sees whatever prose was sent.
+      if (!headDone && headBuffer.length > 0) {
+        tail += headBuffer;
+        full += headBuffer;
+        headBuffer = '';
       }
     } catch {
       // Network or reader failure. Surface what we have so far — the

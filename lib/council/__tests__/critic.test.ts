@@ -199,6 +199,9 @@ describe('critique (F11 dispatch)', () => {
     const errorHook = vi.fn();
     const log = vi.fn();
 
+    // F30: a 429 retries through the backoff schedule before surfacing.
+    // Inject a zero-sleep so the test doesn't wait real wall-clock for
+    // the ~30s budget to exhaust.
     const result = await critique(
       {
         userId: 'u1',
@@ -206,7 +209,13 @@ describe('critique (F11 dispatch)', () => {
         draft: 'You should ship this week.',
         threshold: 'medium',
       },
-      { client, sessionRepo: makeSessionRepo(), errorHook, log }
+      {
+        client,
+        sessionRepo: makeSessionRepo(),
+        errorHook,
+        log,
+        retrySleep: async () => {},
+      }
     );
 
     expect(result.ran).toBe(false);

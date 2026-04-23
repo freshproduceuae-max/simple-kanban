@@ -1,4 +1,4 @@
-import type { CouncilAgent } from '@/lib/persistence/types';
+import type { AdminErrorEventKind, CouncilAgent } from '@/lib/persistence/types';
 
 /**
  * F20 — Resend error-email pipeline.
@@ -53,12 +53,32 @@ export type ResendLike = {
   };
 };
 
+/**
+ * Signature for the `admin_error_events` writer (F27). Tests inject
+ * a no-op or spy; production uses `defaultRecordErrorEvent` which
+ * lazily imports the persistence factory so this module stays
+ * import-free of `lib/persistence/**` at module load.
+ */
+export type RecordErrorEventInput = {
+  user_id: string;
+  kind: AdminErrorEventKind;
+  agent: CouncilAgent | null;
+  reason: string | null;
+};
+export type RecordErrorEvent = (input: RecordErrorEventInput) => Promise<void>;
+
 export type ReportAgentErrorDeps = {
   /** Inject a Resend client (tests, or wire via `getResendClient()`). */
   resend?: ResendLike;
   /** ISO-timestamp source. Tests stub to freeze time for dedup windows. */
   now?: () => number;
   log?: (msg: string, err: unknown) => void;
+  /**
+   * Persist a secondary-path failure to `admin_error_events` (F27).
+   * Defaults to a factory-backed writer that is itself fail-quiet —
+   * inner try/catch routes through `deps.log`, never throws.
+   */
+  recordErrorEvent?: RecordErrorEvent;
 };
 
 const DEDUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -97,6 +117,31 @@ async function getResendClient(): Promise<ResendLike | null> {
     return null;
   }
 }
+
+/**
+ * Production default for `recordErrorEvent` — lazily pulls the
+ * persistence factory so this module doesn't import
+ * `lib/persistence/**` at load time (tests that don't mock the
+ * factory would fail on the env-var guard inside `createServerClient`
+ * otherwise). All failures are swallowed by design: we are already on
+ * the secondary-path fail-quiet branch, and a broken
+ * `admin_error_events` write must never escalate to a primary-path
+ * failure.
+ */
+export const defaultRecordErrorEvent: RecordErrorEvent = async (input) => {
+  try {
+    const { getAdminErrorEventsRepository } = await import(
+      '@/lib/persistence/server'
+    );
+    const repo = getAdminErrorEventsRepository();
+    await repo.record(input);
+  } catch (err) {
+    console.error(
+      'errors/email: admin_error_events.record failed (fail-quiet)',
+      err,
+    );
+  }
+};
 
 export async function reportAgentError(
   input: ReportAgentErrorInput,
@@ -139,6 +184,24 @@ export async function reportAgentError(
     return { sent: true };
   } catch (err) {
     log('errors/email: send failed (fail-quiet)', err);
+    // F27: persist the send failure so /admin/metrics can show the
+    // count. The recorder itself is fail-quiet — see
+    // `defaultRecordErrorEvent`. We intentionally do NOT await the
+    // recorder inside this catch because the user-facing path is
+    // already done; a hanging persistence write must not delay the
+    // return. This matches how callers of `reportAgentError` treat
+    // this function itself (they `void` the promise).
+    const recorder = deps.recordErrorEvent ?? defaultRecordErrorEvent;
+    void recorder({
+      user_id: input.userId,
+      kind: 'email_send_failed',
+      agent: input.agent,
+      reason: 'send-failed',
+    }).catch((recordErr) => {
+      // Belt-and-suspenders: defaultRecordErrorEvent already swallows
+      // its own errors, but a custom injected recorder might not.
+      log('errors/email: recorder rejected (fail-quiet)', recordErr);
+    });
     return { sent: false, reason: 'send-failed' };
   }
 }

@@ -1,7 +1,8 @@
-export type { BoardColumn, CouncilMode, CouncilAgent, RiskLevel, TransparencyMode, ProposalStatus } from './types';
+export type { BoardColumn, CouncilMode, CouncilAgent, RiskLevel, TransparencyMode, ProposalStatus, SessionOutcome } from './types';
 export type {
   TaskRow,
   CouncilSessionRow,
+  CouncilSessionStatsRow,
   CouncilTurnRow,
   CouncilMemorySummaryRow,
   CouncilProposalRow,
@@ -9,6 +10,8 @@ export type {
   MemoryRecallRow,
   UserPreferencesRow,
   CouncilMetricRow,
+  AdminErrorEventKind,
+  AdminErrorEventRow,
 } from './types';
 
 export { TaskRepositoryNotImplemented } from './task-repository';
@@ -23,7 +26,7 @@ export {
 } from './supabase-council-memory-repository';
 
 export { SessionRepositoryNotImplemented } from './session-repository';
-export type { SessionRepository } from './session-repository';
+export type { SessionRepository, SearchSessionsOptions } from './session-repository';
 export {
   SupabaseSessionRepository,
   DEFAULT_SESSIONS_PAGE_SIZE,
@@ -39,6 +42,11 @@ export {
 
 export { UserPreferencesRepositoryNotImplemented } from './user-preferences-repository';
 export type { UserPreferencesRepository } from './user-preferences-repository';
+export { SupabaseUserPreferencesRepository } from './supabase-user-preferences-repository';
 
 export { MetricsRepositoryNotImplemented } from './metrics-repository';
 export type { MetricsRepository } from './metrics-repository';
+
+export { AdminErrorEventsRepositoryNotImplemented } from './admin-error-events-repository';
+export type { AdminErrorEventsRepository } from './admin-error-events-repository';
+export { SupabaseAdminErrorEventsRepository } from './supabase-admin-error-events-repository';

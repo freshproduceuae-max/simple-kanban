@@ -14,11 +14,15 @@ import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { extractPlanFrame } from '@/lib/council/server/plan-extract';
+import { buildCriticAudit } from '@/lib/council/server/critic-audit';
+import { buildMemoryRecallAudit } from '@/lib/council/server/memory-recall-audit';
+import { resolveTransparencyMode } from '@/lib/council/server/transparency';
 import {
   getProposalRepository,
   getSessionRepository,
   getCouncilMemoryRepository,
   getMetricsRepository,
+  getUserPreferencesRepository,
 } from '@/lib/persistence/server';
 
 /**
@@ -85,6 +89,13 @@ export async function POST(request: Request) {
   const sessionRepo = getSessionRepository();
   const memoryRepo = getCouncilMemoryRepository();
   const metricsRepo = getMetricsRepository();
+  const preferencesRepo = getUserPreferencesRepository();
+  // F25 — resolve the transparency pref in parallel with the session
+  // so neither blocks the stream.
+  const transparencyModePromise = resolveTransparencyMode(
+    userId,
+    preferencesRepo,
+  );
   const sessionId = await resolveSessionId({
     userId,
     authSessionId,
@@ -114,11 +125,33 @@ export async function POST(request: Request) {
   // The trailer runs after the stream drains and the consolidator's
   // final `done` resolves. We parse the JSON-plan frame, create one
   // proposal row per draft task, and emit the id list + any
-  // Consolidator-requested chips as the response trailer.
+  // Consolidator-requested chips as the response trailer. F23 also
+  // merges a `criticAudit` fragment so the shelf composer can render
+  // the "How I got here" reveal next to proposal cards — Plan force-
+  // critiques every draft (forceCritic=true above), so this is the
+  // mode where the reveal is most likely to appear. F24 adds a
+  // `memoryRecall` fragment whenever the Researcher surfaced prior-
+  // session summaries into the system prompt, so the shelf can render
+  // the "I remembered from earlier" reveal alongside the Critic one.
+  // F25 attaches the user's resolved transparency mode whenever any
+  // reveal artifact is present; mode A short-circuits the reveal
+  // artifacts server-side (proposals still ship — they're a user-
+  // action affordance, not a reveal, so mode A never suppresses them).
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     const final = await done;
+    const transparencyMode = await transparencyModePromise;
+    const emitReveals = transparencyMode !== 'A';
+    const criticAudit = emitReveals ? buildCriticAudit(final) : null;
+    const memoryRecall = emitReveals
+      ? buildMemoryRecallAudit(final.researcher.recalledSummaries)
+      : null;
     const frame = extractPlanFrame(final.text);
-    if (frame.tasks.length === 0 && frame.chips.length === 0) {
+    if (
+      frame.tasks.length === 0 &&
+      frame.chips.length === 0 &&
+      criticAudit === null &&
+      memoryRecall === null
+    ) {
       return null;
     }
 
@@ -157,6 +190,13 @@ export async function POST(request: Request) {
     const payload: Record<string, unknown> = {};
     if (proposals.length > 0) payload.proposals = proposals;
     if (frame.chips.length > 0) payload.chips = frame.chips;
+    if (criticAudit) payload.criticAudit = criticAudit;
+    if (memoryRecall) payload.memoryRecall = memoryRecall;
+    // F25 — mode ships alongside reveals so the client renders them
+    // correctly (open-by-default for D, glyphs for C, collapsed for B).
+    // We only include it when a reveal artifact is present, to keep the
+    // wire clean on proposal-only turns.
+    if (criticAudit || memoryRecall) payload.transparencyMode = transparencyMode;
     return Object.keys(payload).length > 0 ? payload : null;
   };
 

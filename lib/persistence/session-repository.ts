@@ -1,4 +1,41 @@
-import type { CouncilMode, CouncilSessionRow, CouncilTurnRow } from './types';
+import type {
+  CouncilMode,
+  CouncilSessionRow,
+  CouncilSessionStatsRow,
+  CouncilTurnRow,
+  SessionOutcome,
+} from './types';
+
+/**
+ * F28 — input shape for `searchSessionsForUser`. Every field is
+ * optional; the call with no options is the empty-filter default
+ * ("most-recent 25 sessions"), same as what the bare
+ * `/history` page did before F28 landed.
+ *
+ * `cursor` continues to be a `started_at` ISO string — strict `lt`
+ * against the last row on the previous page, matching the keyset
+ * pattern `listSessionsForUser` already uses.
+ */
+export interface SearchSessionsOptions {
+  /** Full-text query. Matches `to_tsvector('english', content)` on council_turns. Empty/whitespace = no query. */
+  query?: string;
+  /** Allow-list of modes. Empty or undefined = all modes. */
+  modes?: readonly CouncilMode[];
+  /** Lower bound on `started_at`, inclusive. ISO string. */
+  dateFrom?: string;
+  /** Upper bound on `started_at`, inclusive. ISO string. */
+  dateTo?: string;
+  /** Lower bound on `tokens_in_sum + tokens_out_sum`. */
+  tokenMin?: number;
+  /** Upper bound on `tokens_in_sum + tokens_out_sum`. */
+  tokenMax?: number;
+  /** Allow-list of outcomes (empty / ongoing / done). Empty or undefined = all. */
+  outcomes?: readonly SessionOutcome[];
+  /** Page size. Clamped [1, 100]. Defaults to 25. */
+  limit?: number;
+  /** Keyset cursor — `started_at` ISO from the last row on the previous page. */
+  cursor?: string;
+}
 
 /** Fills in at F18 / F19. */
 export interface SessionRepository {
@@ -65,6 +102,68 @@ export interface SessionRepository {
    * session has no turns yet (greeting / first turn).
    */
   sumSessionTokens(input: { sessionId: string }): Promise<number>;
+  /**
+   * F27 — fetch a batch of sessions by id for the `/admin/metrics`
+   * SLO join. The page collects distinct `session_id` values from
+   * `council_metrics` rows in the window and asks for their modes so
+   * the view-model can split latency percentiles by Council mode
+   * (chat / plan / greeting) to check against PRD §13.3.
+   *
+   * Scoped by `user_id` on top of RLS so a mis-scoped call still
+   * fails loudly. Empty input returns an empty array without a round
+   * trip.
+   */
+  listSessionsByIds(input: {
+    userId: string;
+    sessionIds: string[];
+  }): Promise<CouncilSessionRow[]>;
+  /**
+   * F28 — filtered + searchable session list with per-session token
+   * totals and derived outcome, for `/history`. Reads from the
+   * `council_sessions_with_stats` view (migration 015). When
+   * `opts.query` is set the implementation must first resolve the
+   * matching session ids via a FTS query against
+   * `council_turns.content_fts`, then intersect the view read with
+   * those ids — this keeps the GIN index usable rather than
+   * pre-aggregating tsvectors at the session level.
+   *
+   * Keyset pagination uses `started_at desc` with strict `lt` against
+   * `opts.cursor`, same shape as `listSessionsForUser`.
+   */
+  searchSessionsForUser(input: {
+    userId: string;
+    opts?: SearchSessionsOptions;
+  }): Promise<CouncilSessionStatsRow[]>;
+  /**
+   * F29 — delete a single `council_sessions` row owned by `userId`.
+   * Scoped by `(id, user_id)` on top of RLS so a mis-scoped call still
+   * fails loudly. Cascade FKs (migrations 003, 004, 006, 007) remove
+   * every dependent row in a single statement:
+   *
+   *   council_sessions
+   *     → council_turns       (ON DELETE CASCADE)
+   *         → critic_diffs    (ON DELETE CASCADE)
+   *         → memory_recalls  (ON DELETE CASCADE)
+   *     → council_memory_summaries (ON DELETE CASCADE)
+   *
+   * `council_proposals.session_id` is `ON DELETE SET NULL` by design —
+   * proposals are an audit surface and survive the session they were
+   * attached to. Returns `true` when a row was deleted, `false` when
+   * the id did not resolve (stale link, already-purged row). Never
+   * throws on a no-op.
+   */
+  deleteSession(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<boolean>;
+  /**
+   * F29 — purge every `council_sessions` row for `userId`. Same cascade
+   * chain as `deleteSession` — one statement, every dependent row
+   * goes. Returns the number of session rows removed so the caller can
+   * surface it on the confirmation toast. Scoped by `user_id` on top
+   * of RLS; returns 0 when the user has no history yet.
+   */
+  deleteAllSessionsForUser(input: { userId: string }): Promise<number>;
 }
 
 export class SessionRepositoryNotImplemented implements SessionRepository {
@@ -109,5 +208,26 @@ export class SessionRepositoryNotImplemented implements SessionRepository {
   }
   async sumSessionTokens(_input: { sessionId: string }): Promise<number> {
     throw new Error('SessionRepository: implementation lands with F22');
+  }
+  async listSessionsByIds(_input: {
+    userId: string;
+    sessionIds: string[];
+  }): Promise<CouncilSessionRow[]> {
+    throw new Error('SessionRepository: implementation lands with F27');
+  }
+  async searchSessionsForUser(_input: {
+    userId: string;
+    opts?: SearchSessionsOptions;
+  }): Promise<CouncilSessionStatsRow[]> {
+    throw new Error('SessionRepository: implementation lands with F28');
+  }
+  async deleteSession(_input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<boolean> {
+    throw new Error('SessionRepository: implementation lands with F29');
+  }
+  async deleteAllSessionsForUser(_input: { userId: string }): Promise<number> {
+    throw new Error('SessionRepository: implementation lands with F29');
   }
 }

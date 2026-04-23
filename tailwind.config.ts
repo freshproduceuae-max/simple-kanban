@@ -64,6 +64,16 @@ const config: Config = {
         "space-12": "var(--space-12)",
         "space-16": "var(--space-16)",
       },
+      // F32 — mobile tap-target floor. design-system.md §6.2 requires
+      // 44px minimum on anything a user taps at 375px. Semantic token
+      // (`min-h-tap` / `min-w-tap`) so call sites read as intent, not a
+      // magic number, and so a future re-theming pass can retune once.
+      minHeight: {
+        tap: "44px",
+      },
+      minWidth: {
+        tap: "44px",
+      },
       // §7 Surfaces And Elevation — --shadow-*, --ring-focus.
       boxShadow: {
         "card-rest": "var(--shadow-card-rest)",

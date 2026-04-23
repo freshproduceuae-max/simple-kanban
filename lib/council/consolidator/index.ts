@@ -5,6 +5,7 @@ import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import { COUNCIL_VOICE_STYLEBOOK } from '../shared/voice';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
+import { retryOn429, type SoftPauseInfo } from '../shared/retry-on-429';
 
 /**
  * F10 — Consolidator agent.
@@ -42,12 +43,36 @@ export type ConsolidatorDeps = {
     message: string;
     cause?: unknown;
   }) => void;
+  /**
+   * F30 — fires when the Anthropic stream-acquisition call is 429'd
+   * and we're about to sleep before a retry. Dispatch multiplexes this
+   * into the user-visible stream as a soft-pause meta frame.
+   */
+  onSoftPause?: (info: SoftPauseInfo) => void;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep so unit tests
+   * don't wait real wall-clock between backoff attempts.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   log?: (msg: string, err: unknown) => void;
 };
 
 export type ConsolidatorResult = {
   stream: AsyncIterable<string>;
-  done: Promise<{ text: string; tokensIn: number; tokensOut: number; mode: CouncilMode }>;
+  /**
+   * Resolves after `finalize()` persists the assistant turn. `turnId`
+   * is the `council_turns.id` of the just-written row (F24 needs it
+   * to FK `memory_recalls.turn_id`). Null when the write failed or
+   * the path never ran the Consolidator — callers must gate any
+   * recall-row insert on `turnId != null`.
+   */
+  done: Promise<{
+    text: string;
+    tokensIn: number;
+    tokensOut: number;
+    mode: CouncilMode;
+    turnId: string | null;
+  }>;
 };
 
 export const CONSOLIDATOR_FAIL_SENTENCE =
@@ -108,6 +133,13 @@ function buildSystemPrompt(mode: CouncilMode, researcherFindings?: string): stri
     .join('\n\n');
 }
 
+/**
+ * Persist a user or consolidator turn and return the persisted row's
+ * id, or null if the write failed. F24 relies on the returned id to
+ * FK `memory_recalls.turn_id`; the null return keeps the caller's
+ * recall-write path safely inert on a persistence flake — we'd rather
+ * lose a recall row than drop the reply.
+ */
 async function persistTurn(
   deps: ConsolidatorDeps,
   args: {
@@ -118,9 +150,9 @@ async function persistTurn(
     tokensIn?: number;
     tokensOut?: number;
   }
-): Promise<void> {
+): Promise<string | null> {
   try {
-    await deps.sessionRepo.appendTurn({
+    const row = await deps.sessionRepo.appendTurn({
       session_id: args.sessionId,
       user_id: args.userId,
       agent: args.agent === 'user' ? 'user' : 'consolidator',
@@ -130,8 +162,10 @@ async function persistTurn(
       tokens_in: args.tokensIn ?? null,
       tokens_out: args.tokensOut ?? null,
     });
+    return row?.id ?? null;
   } catch (err) {
     (deps.log ?? console.error)('consolidator: turn write failed', err);
+    return null;
   }
 }
 
@@ -177,14 +211,33 @@ export async function consolidate(
   // greeting reads, which fetch the newest summaries without filtering
   // on non-empty content.
 
-  // One retry, then surface the failure sentence. The retry wraps the
-  // stream *acquisition*, not the streaming itself (a mid-stream error
-  // is surfaced as failure directly — can't cleanly resume).
+  // Stream acquisition runs through retryOn429: on a 429, we back off
+  // per the vision §9 schedule (1/2/4/8/16s, 30s cap) and retry. For
+  // any non-429 error we still give one more shot — the pre-F30
+  // behaviour covered transient network flakes, and we preserve it.
+  // Beyond that, the failure sentence fires.
+  //
+  // IMPORTANT: the 30s 429 budget lives on the *first* retryOn429 call
+  // only. The second leg is a bare attemptStream — it must not start a
+  // fresh 30s 429 budget (doing so would give 60s worst-case total,
+  // violating CLAUDE.md "30s client queue + backoff"). If a 429 storm
+  // exhausted the first budget, the bare second attempt will fail fast
+  // and the failure sentence fires.
+  //
+  // The retry wraps the stream *acquisition*, not the streaming
+  // itself (a mid-stream error can't cleanly resume). Once bytes are
+  // flowing we commit.
   const callStartedAt = new Date().toISOString();
   const startMs = Date.now();
   let stream: AsyncIterable<StreamEvent>;
   try {
-    stream = await attemptStream(client, system, input.userInput);
+    stream = await retryOn429({
+      attempt: () => attemptStream(client, system, input.userInput),
+      onBackoff: (info) => {
+        deps.onSoftPause?.(info);
+      },
+      sleep: deps.retrySleep,
+    });
   } catch (firstErr) {
     log('consolidator: attempt 1 failed, retrying', firstErr);
     try {
@@ -268,12 +321,14 @@ export async function consolidate(
     tokensIn: number;
     tokensOut: number;
     mode: CouncilMode;
+    turnId: string | null;
   }) => void;
   const done = new Promise<{
     text: string;
     tokensIn: number;
     tokensOut: number;
     mode: CouncilMode;
+    turnId: string | null;
   }>((r) => {
     resolveDone = r;
   });
@@ -288,7 +343,7 @@ export async function consolidate(
     if (finalized) return;
     finalized = true;
     const text = chunks.join('');
-    await persistTurn(deps, {
+    const turnId = await persistTurn(deps, {
       sessionId: input.sessionId,
       userId: input.userId,
       agent: 'consolidator',
@@ -312,7 +367,7 @@ export async function consolidate(
         { metricsRepo: deps.metricsRepo, log },
       );
     }
-    resolveDone({ text, tokensIn, tokensOut, mode });
+    resolveDone({ text, tokensIn, tokensOut, mode, turnId });
   };
 
   // Wrap the passthrough so that persistence + done-resolution happen
@@ -346,7 +401,7 @@ function failStream(
     },
   };
   const done = (async () => {
-    await persistTurn(deps, {
+    const turnId = await persistTurn(deps, {
       sessionId: input.sessionId,
       userId: input.userId,
       agent: 'consolidator',
@@ -370,7 +425,13 @@ function failStream(
         { metricsRepo: deps.metricsRepo, log },
       );
     }
-    return { text: CONSOLIDATOR_FAIL_SENTENCE, tokensIn: 0, tokensOut: 0, mode };
+    return {
+      text: CONSOLIDATOR_FAIL_SENTENCE,
+      tokensIn: 0,
+      tokensOut: 0,
+      mode,
+      turnId,
+    };
   })();
   return { stream, done };
 }

@@ -7,6 +7,8 @@ const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
 const findResumableSession = vi.fn();
+const getForUserPref = vi.fn();
+const upsertPref = vi.fn();
 const REAL_UUID = 'cccccccc-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -43,6 +45,10 @@ vi.mock('@/lib/persistence/server', () => ({
     listForUser: vi.fn(async () => []),
     dailyTokenTotalForUser: vi.fn(async () => 0),
   }),
+  getUserPreferencesRepository: () => ({
+    getForUser: (...a: unknown[]) => getForUserPref(...a),
+    upsert: (...a: unknown[]) => upsertPref(...a),
+  }),
 }));
 
 import { POST as planRoute } from '../route';
@@ -60,18 +66,49 @@ function req(body: unknown): Request {
  * A fake consolidator turn. The final `done.text` can embed a json-plan
  * fence the route extracts. `streamText` is what the user sees.
  */
-function fakeTurn(opts?: { streamText?: string; finalText?: string }) {
+function fakeTurn(opts?: {
+  streamText?: string;
+  finalText?: string;
+  critic?: {
+    ran: boolean;
+    risk?: 'low' | 'medium' | 'high';
+    review?: string | null;
+  };
+  recalledSummaries?: Array<{
+    id: string;
+    content: string;
+    sessionId: string;
+    createdAt: string;
+  }>;
+}) {
   const streamText = opts?.streamText ?? 'here is the plan…';
   const finalText = opts?.finalText ?? streamText;
+  const critic = opts?.critic
+    ? {
+        ran: opts.critic.ran,
+        risk: opts.critic.risk ?? 'low',
+        review: opts.critic.review ?? null,
+        tokensIn: 0,
+        tokensOut: 0,
+      }
+    : { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 };
   return {
     stream: (async function* () {
       yield streamText;
     })(),
     done: Promise.resolve({
       text: finalText,
+      preCriticText: finalText,
       mode: 'plan',
-      researcher: { ok: true, text: '', toolCalls: [], tokensIn: 0, tokensOut: 0 },
-      critic: { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
+      researcher: {
+        ok: true,
+        text: '',
+        toolCalls: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        recalledSummaries: opts?.recalledSummaries ?? [],
+      },
+      critic,
     }),
   };
 }
@@ -85,6 +122,9 @@ describe('POST /api/council/plan', () => {
     writeSummary.mockReset();
     endSession.mockReset();
     findResumableSession.mockReset();
+    getForUserPref.mockReset();
+    upsertPref.mockReset();
+    getForUserPref.mockResolvedValue(null);
     findResumableSession.mockImplementation(
       async ({ sessionId }: { sessionId: string }) => ({
         id: sessionId,
@@ -266,5 +306,246 @@ describe('POST /api/council/plan', () => {
     await planRoute(req({ sessionId: clientId, userInput: 'plan' }));
     expect(runCouncilTurnMock.mock.calls[0][0].sessionId).toBe(clientId);
     expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('F23: includes a criticAudit fragment when the Critic ran', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        critic: {
+          ran: true,
+          risk: 'medium',
+          review: 'I would soften the Thursday commitment.',
+        },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.criticAudit).toEqual({
+      risk: 'medium',
+      review: 'I would soften the Thursday commitment.',
+      preDraft: '```json-plan\n{"tasks":["t1"]}\n```',
+    });
+  });
+
+  it('F23: omits criticAudit when the Critic did not run (below-threshold fast path)', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        // default critic.ran === false
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.criticAudit).toBeUndefined();
+    // The proposals fragment still ships.
+    expect(trailer.proposals).toHaveLength(1);
+  });
+
+  it('F23: emits a criticAudit-only trailer on turns with no proposals and no chips', async () => {
+    // Conversational Plan replies (e.g., "yes I can draft that, what's
+    // the scope?") produce no tasks/chips but should still reveal the
+    // Critic audit when forceCritic fires.
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'I can draft this — tell me the scope.',
+        critic: {
+          ran: true,
+          risk: 'low',
+          review: 'Nothing to flag.',
+        },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan?' }));
+    const body = await res.text();
+    const lines = body.split('\n');
+    const trailer = JSON.parse(lines.at(-1) as string);
+    expect(trailer.criticAudit.review).toBe('Nothing to flag.');
+    expect(trailer.proposals).toBeUndefined();
+    expect(trailer.chips).toBeUndefined();
+  });
+
+  // -------- F24: memoryRecall trailer fragment --------
+
+  it('F24: emits a memoryRecall fragment alongside proposals when Researcher surfaced summaries', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        recalledSummaries: [
+          {
+            id: 'sum-plan',
+            content: 'You told me last week to keep Q3 tasks small.',
+            sessionId: 'sess-plan',
+            createdAt: '2026-04-17T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.proposals).toHaveLength(1);
+    expect(trailer.memoryRecall.recalls).toHaveLength(1);
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-plan');
+  });
+
+  it('F24: emits a memoryRecall-only trailer on a conversational Plan reply (no tasks/chips/critic)', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'tell me the scope first.',
+        recalledSummaries: [
+          {
+            id: 'sum-only',
+            content: 'Prior scope was web-only.',
+            sessionId: 'sess-ext',
+            createdAt: '2026-04-16T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'what should I build?' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.memoryRecall.recalls).toHaveLength(1);
+    expect(trailer.proposals).toBeUndefined();
+    expect(trailer.criticAudit).toBeUndefined();
+  });
+
+  it('F24: omits memoryRecall and the trailer entirely when Researcher returned empty AND the reply has no proposals/chips/critic', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'tell me the scope first.',
+        recalledSummaries: [],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'what should I build?' }));
+    const body = await res.text();
+    // Body is exactly the streamed text — no trailer line.
+    expect(body).toBe('here is the plan…');
+  });
+
+  it('F24: merges memoryRecall + criticAudit + proposals + chips in one trailer', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText:
+          'drafting now — \n```json-plan\n{"tasks":["t1"],"chips":["deadline?"]}\n```',
+        critic: {
+          ran: true,
+          risk: 'low',
+          review: 'Looks honest.',
+        },
+        recalledSummaries: [
+          {
+            id: 'sum-all',
+            content: 'You said to keep plans to three tasks.',
+            sessionId: 'sess-all',
+            createdAt: '2026-04-18T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.proposals).toHaveLength(1);
+    expect(trailer.chips).toEqual(['deadline?']);
+    expect(trailer.criticAudit.review).toBe('Looks honest.');
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-all');
+  });
+
+  // -------- F25: transparency-mode trailer + server-side mode-A suppression --------
+
+  it('F25: attaches transparencyMode=B alongside reveals by default', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        critic: {
+          ran: true,
+          risk: 'medium',
+          review: 'flagged.',
+        },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('B');
+    expect(trailer.criticAudit).toBeDefined();
+  });
+
+  it('F25: passes transparencyMode=D through when the user pref is D', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'D',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        critic: { ran: true, risk: 'high', review: 'watch out.' },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('D');
+  });
+
+  it('F25: suppresses reveal artifacts server-side under mode A but still ships proposals', async () => {
+    // Mode A is "clean voice only" for reveals, but proposals are user-
+    // action affordances (not a reveal) — the board needs them to let
+    // the user tap Accept. The trailer drops criticAudit/memoryRecall
+    // and omits transparencyMode (attached only when reveals present).
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText:
+          '```json-plan\n{"tasks":["t1"],"chips":["scope?"]}\n```',
+        critic: { ran: true, risk: 'high', review: 'would normally flag.' },
+        recalledSummaries: [
+          {
+            id: 'sum-drop',
+            content: 'would normally surface.',
+            sessionId: 'sess-drop',
+            createdAt: '2026-04-10T00:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    // Proposals survive (they're an affordance, not a reveal).
+    expect(trailer.proposals).toHaveLength(1);
+    expect(trailer.chips).toEqual(['scope?']);
+    // Reveal artifacts were dropped server-side.
+    expect(trailer.criticAudit).toBeUndefined();
+    expect(trailer.memoryRecall).toBeUndefined();
+    // No reveals → no transparencyMode attached (keeps wire clean).
+    expect(trailer.transparencyMode).toBeUndefined();
+  });
+
+  it('F25: under mode A with no proposals + no chips, emits no trailer at all', async () => {
+    // Same server-side suppression as the chat route: when only reveal
+    // artifacts would have applied, mode A strips the whole trailer.
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'I can draft this — tell me the scope.',
+        critic: { ran: true, risk: 'low', review: 'ok.' },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan?' }));
+    expect(await res.text()).toBe('here is the plan…');
   });
 });

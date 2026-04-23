@@ -389,7 +389,7 @@
         "Render 'How I got here' affordance on every Council turn",
         "On expand: fetch and display Researcher findings + Critic diff + Consolidator changes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F24",
@@ -404,7 +404,7 @@
         "Persist each recall to memory_recalls",
         "Render recall line inline in the Council reply, styled per design-system.md §10 voice rules"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F25",
@@ -419,7 +419,7 @@
         "Persist preference to user_preferences table (default 'B')",
         "Wire preference into the shelf renderer: A suppresses 'How I got here'; C adds [R]/[C] source glyphs; D adds unresolved-dissent line"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F26",
@@ -432,14 +432,14 @@
       "steps": [
         "Create /admin/metrics route gated by role (single-user in v0.4 = the CD)",
         "Render crude tables reading the metrics table from F21",
-        "Surface 429 count + Supabase error count + error-email failure count"
+        "Surface 429 count + agent-level error count (per-agent grouping and persistent error-email failure counter land with F27)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F27",
       "category": "observability",
-      "description": "Per-agent /admin/metrics breakdown (v0.4 final): Researcher vs Consolidator vs Critic token share, latency histograms, failure rates per agent.",
+      "description": "Per-agent /admin/metrics breakdown (v0.4 final): Researcher vs Consolidator vs Critic token share, latency histograms, failure rates per agent, persistent error-email failure counter.",
       "order": 27,
       "priority": "final",
       "dependsOn": ["F26"],
@@ -447,9 +447,10 @@
       "steps": [
         "Extend /admin/metrics with per-agent grouping",
         "Add simple histogram rendering (no heavy chart library)",
+        "Persist error-email send failures (table + repository method) and surface the count alongside 429 / error totals",
         "Compute pass/fail against starting SLOs from PRD §13.3 and flag misses"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F28",
@@ -464,7 +465,7 @@
         "Extend /history with search box + filter controls",
         "Paginate with keyset cursor for performance"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F29",
@@ -479,7 +480,7 @@
         "Add 'delete all my history' action in /settings/council with two-step confirm",
         "Cascade deletes through council_turns, council_memory_summaries, critic_diffs, memory_recalls for the user"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F30",
@@ -496,7 +497,7 @@
         "After 30s, fall through to per-agent failure path",
         "Test under throttled Anthropic account and record the session artifact"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F31",
@@ -512,7 +513,7 @@
         "Run three naïve-user stopwatch sessions and capture the results in the release log",
         "Revise + rerun if any user crosses 60s"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "F32",
@@ -528,7 +529,7 @@
         "Verify shelf does not occlude the active board column",
         "File fixes as individual PRs; sign off when zero open items"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

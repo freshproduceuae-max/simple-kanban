@@ -1,7 +1,8 @@
 import type {
-  CouncilSessionRow,
-  CouncilTurnRow,
   CouncilMode,
+  CouncilSessionRow,
+  CouncilSessionStatsRow,
+  CouncilTurnRow,
 } from '@/lib/persistence/types';
 
 /**
@@ -97,4 +98,59 @@ export function buildHistoryRow(
     outcome: deriveSessionOutcome(session, turns),
     durationMs: deriveDurationMs(session),
   };
+}
+
+/**
+ * F28 — same `SessionHistoryRow` shape as `buildHistoryRow`, but
+ * sourced from the `council_sessions_with_stats` view (one query per
+ * page) instead of an N+1 turn fetch. Keeps the page component
+ * identical when rendering either data path.
+ *
+ * `first_user_content` comes from the view's correlated subquery, so
+ * title derivation is a pure string op.
+ */
+export function buildHistoryRowFromStats(
+  stats: CouncilSessionStatsRow,
+): SessionHistoryRow {
+  return {
+    id: stats.id,
+    mode: stats.mode,
+    startedAt: stats.started_at,
+    endedAt: stats.ended_at,
+    title: deriveTitleFromStats(stats.first_user_content),
+    tokenCost: stats.total_tokens,
+    turnCount: stats.turn_count,
+    outcome: stats.outcome,
+    durationMs: deriveDurationMs({
+      // `deriveDurationMs` only needs started_at + ended_at; the view
+      // gives us both. Shim the field shape without a fresh helper.
+      id: stats.id,
+      user_id: stats.user_id,
+      mode: stats.mode,
+      auth_session_id: null,
+      started_at: stats.started_at,
+      ended_at: stats.ended_at,
+      summary_written_at: stats.summary_written_at,
+    }),
+  };
+}
+
+/**
+ * Stats-view variant of `deriveSessionTitle`. The input is already
+ * the first user turn's raw content (or null for empty sessions),
+ * so we skip the turn-array scan and apply the same truncation rule.
+ */
+export function deriveTitleFromStats(
+  firstUserContent: string | null,
+): string {
+  if (
+    firstUserContent === null ||
+    typeof firstUserContent !== 'string' ||
+    firstUserContent.trim().length === 0
+  ) {
+    return FALLBACK_TITLE;
+  }
+  const clean = firstUserContent.trim().replace(/\s+/g, ' ');
+  if (clean.length <= MAX_TITLE_CHARS) return clean;
+  return `${clean.slice(0, MAX_TITLE_CHARS - 1).trimEnd()}…`;
 }

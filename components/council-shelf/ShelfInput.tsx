@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 /**
  * F15/F16/F17 — Shelf input affordance.
@@ -33,6 +33,27 @@ export function ShelfInput({
   autoFocus?: boolean;
 }) {
   const [value, setValue] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // F31 — late autofocus. `autoFocus` starts false (we don't steal focus
+  // on mount; a brand-new user is still reading the greeting as it
+  // streams). When the parent flips it to true, we imperatively focus
+  // because the native `autoFocus` attribute only fires on mount.
+  // Empty dep-list intentional: we re-run whenever `autoFocus` flips
+  // AND when `disabled` releases (so focus lands once the busy gate
+  // opens, not in the middle of a stream).
+  useEffect(() => {
+    if (!autoFocus || disabled) return;
+    const el = inputRef.current;
+    if (!el) return;
+    // Avoid stealing focus if the user already clicked elsewhere.
+    if (document.activeElement && document.activeElement !== document.body) {
+      if (document.activeElement === el) return;
+      // Another input/button has focus — respect the user.
+      return;
+    }
+    el.focus();
+  }, [autoFocus, disabled]);
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -52,20 +73,23 @@ export function ShelfInput({
         Message to the Council
       </label>
       <input
+        ref={inputRef}
         id="shelf-input-field"
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        autoFocus={autoFocus}
         autoComplete="off"
         enterKeyHint="send"
+        // F32 — `rounded` (Tailwind default) replaces the previously
+        // undefined `rounded-radius-sm` utility; `min-h-tap` enforces
+        // the 44px mobile tap floor on the input itself.
         className={[
           'flex-1 bg-transparent outline-none',
           'text-size-md font-family-body text-ink-900',
           'placeholder:text-ink-500',
-          'focus-visible:shadow-ring-focus rounded-radius-sm px-space-2 py-space-1',
+          'focus-visible:shadow-ring-focus rounded min-h-tap px-space-2 py-space-1',
           'disabled:opacity-50 disabled:cursor-not-allowed',
         ].join(' ')}
         aria-disabled={disabled}
@@ -73,9 +97,12 @@ export function ShelfInput({
       <button
         type="submit"
         disabled={disabled || value.trim().length === 0}
+        // F32 — inline-flex + min-h-tap for the 44px bar; `rounded`
+        // replaces the undefined `rounded-radius-sm` utility.
         className={[
+          'inline-flex items-center justify-center',
           'text-size-sm font-family-body text-ink-700',
-          'rounded-radius-sm px-space-3 py-space-1',
+          'rounded min-h-tap min-w-tap px-space-3 py-space-1',
           'hover:text-ink-900 focus-visible:shadow-ring-focus',
           'disabled:opacity-50 disabled:cursor-not-allowed',
         ].join(' ')}

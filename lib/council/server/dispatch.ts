@@ -9,6 +9,9 @@ import type { AnthropicLike } from '@/lib/council/shared/client';
 import { checkBudget, type BudgetCheckResult } from '@/lib/council/shared/budget-check';
 import { reportAgentError } from '@/lib/council/errors/email';
 import { invalidateSessionCacheBySessionId } from '@/lib/council/server/session';
+import { truncateRecallSnippet } from '@/lib/council/server/memory-recall-audit';
+import { encodeSoftPauseFrame } from '@/lib/council/shared/soft-pause-frame';
+import type { SoftPauseInfo } from '@/lib/council/shared/retry-on-429';
 
 /**
  * F15/F16/F17 — shared Council-turn orchestrator.
@@ -65,6 +68,12 @@ export type RunCouncilTurnDeps = {
   memoryRepo: CouncilMemoryRepository;
   /** F21 — optional metrics repo; when present, agents emit per-call rows. */
   metricsRepo?: MetricsRepository;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep inside every
+   * agent so unit tests don't wait real wall-clock between backoff
+   * attempts. Production leaves this unset.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -75,9 +84,17 @@ export type RunCouncilTurnResult = {
    * Settles after the Consolidator stream ends AND the Critic has
    * finished (or skipped). Routes MUST await this before the HTTP
    * response closes so the Critic has a chance to persist its review.
+   *
+   * `preCriticText` is the raw Consolidator draft the Critic reviewed —
+   * no warn banner, no fence stripping. F23 ("How I got here" reveal)
+   * needs this alongside `critic.review` so the client can show the
+   * user what the Council drafted next to what the Critic flagged.
+   * `text` is the final, user-visible string (banner + draft); the two
+   * differ only when a budget warn banner is prepended.
    */
   done: Promise<{
     text: string;
+    preCriticText: string;
     mode: CouncilMode;
     researcher: ResearcherFinding;
     critic: CriticResult;
@@ -90,6 +107,20 @@ export async function runCouncilTurn(
   deps: RunCouncilTurnDeps,
 ): Promise<RunCouncilTurnResult> {
   const log = deps.log ?? ((msg, err) => console.error(msg, err));
+
+  // F30 — soft-pause frame buffer. Every 429 backoff from the
+  // Researcher or Consolidator pushes a `__council_meta__:{...}\n` line
+  // here. We flush this buffer at the HEAD of the user-visible stream
+  // so the shelf can render a "rate-limited, retrying in Ns" indicator
+  // BEFORE any Consolidator tokens arrive. All relevant retries
+  // complete before the Consolidator stream starts iterating (the
+  // `retryOn429` wrapper awaits its sleep inside the call chain) so
+  // the buffer is guaranteed to be fully populated by the time the
+  // stream is drained.
+  const softPauseFrames: string[] = [];
+  const collectSoftPause = (info: SoftPauseInfo) => {
+    softPauseFrames.push(encodeSoftPauseFrame(info));
+  };
 
   // 0. Pre-flight budget check (F22). A 'cut' verdict short-circuits
   //    the entire turn: no Researcher, no Consolidator, no Critic —
@@ -207,6 +238,8 @@ export async function runCouncilTurn(
         sessionRepo: deps.sessionRepo,
         memoryRepo: deps.memoryRepo,
         metricsRepo: deps.metricsRepo,
+        onSoftPause: collectSoftPause,
+        retrySleep: deps.retrySleep,
         errorHook: ({ failureClass, message, cause }) => {
           void reportAgentError(
             {
@@ -235,6 +268,10 @@ export async function runCouncilTurn(
       toolCalls: [],
       tokensIn: 0,
       tokensOut: 0,
+      // F24 — no memory was surfaced this turn, so the recall-write
+      // chain below short-circuits and no inline "I remembered …" line
+      // is rendered.
+      recalledSummaries: [],
     };
   }
 
@@ -256,6 +293,8 @@ export async function runCouncilTurn(
         sessionRepo: deps.sessionRepo,
         memoryRepo: deps.memoryRepo,
         metricsRepo: deps.metricsRepo,
+        onSoftPause: collectSoftPause,
+        retrySleep: deps.retrySleep,
         errorHook: ({ failureClass, message, cause }) => {
           void reportAgentError(
             {
@@ -280,6 +319,15 @@ export async function runCouncilTurn(
   // 3. Post-stream critic. We chain it onto the consolidator's own
   //    `done` promise so the Critic never starts before the final
   //    draft exists. `forceCritic` maps to the critic's `force` flag.
+  //
+  //    F30 note: we deliberately do NOT pass `onSoftPause:
+  //    collectSoftPause` here. `softPauseFrames` flushes at the HEAD of
+  //    the user-visible stream — by the time a Critic 429 fires, the
+  //    Consolidator stream has already started and any late push to
+  //    the buffer would be invisible to the client. Critic 429s still
+  //    fire the `errorHook` below, which surfaces to the Resend pipe
+  //    for server-side observability. See the docstring on
+  //    `CriticDeps.onSoftPause` for details.
   const criticPromise: Promise<CriticResult> = consolidator.done.then(
     async ({ text }) => {
       try {
@@ -294,6 +342,7 @@ export async function runCouncilTurn(
             client: deps.client,
             sessionRepo: deps.sessionRepo,
             metricsRepo: deps.metricsRepo,
+            retrySleep: deps.retrySleep,
             errorHook: ({ failureClass, message, cause }) => {
               void reportAgentError(
                 {
@@ -326,13 +375,63 @@ export async function runCouncilTurn(
     },
   );
 
+  // F24 — writing recall rows is chained off the Consolidator's
+  // persisted turn id so we can FK each row back at the reply that
+  // used the memory. The promise is launched in parallel with the
+  // Critic, then awaited by `done` so the dispatch return value only
+  // resolves after all post-stream writes have settled. When the
+  // Consolidator's persistTurn failed (turnId === null) or the
+  // Researcher surfaced nothing, we skip the write entirely — a
+  // missing memory-recall row is cheap; a mis-FK'd one would be a
+  // data bug.
+  const recallWritesPromise = consolidator.done.then(async ({ turnId }) => {
+    if (!turnId) return;
+    if (researcher.recalledSummaries.length === 0) return;
+    await Promise.all(
+      researcher.recalledSummaries.map(async (summary) => {
+        try {
+          // Cap before write. The stored snippet has to match the
+          // displayed one — if we persisted the full summary here, a
+          // future read (F28 history replay) would pull back text
+          // that overshot the tail-reserve window and pollute the
+          // reveal with content the user never saw. Using the same
+          // helper the trailer uses keeps the two surfaces coherent.
+          const { snippet } = truncateRecallSnippet(summary.content);
+          // An all-empty snippet shouldn't reach here (the Researcher
+          // filters blanks), but guard anyway so we don't insert a
+          // recall row with no visible body.
+          if (snippet.length === 0) return;
+          await deps.memoryRepo.writeRecall({
+            turn_id: turnId,
+            user_id: input.userId,
+            // Null — v0.4 memory surfaces summaries, not individual
+            // turns (see `MemoryRecallRow` JSDoc + migration 007).
+            source_turn_id: null,
+            snippet,
+          });
+        } catch (writeErr) {
+          log('dispatch: writeRecall failed (swallowed)', writeErr);
+        }
+      }),
+    );
+  });
+
   const done = (async () => {
     const finalConsolidator = await consolidator.done;
     const critic = await criticPromise;
+    // Wait for recall writes before resolving `done` so tests and
+    // downstream observers (F28 history) see a consistent DB state.
+    // Errors are already swallowed inside the chain; awaiting a
+    // settled promise here never rejects.
+    await recallWritesPromise;
     return {
       text: warnBanner
         ? `${warnBanner}\n\n${finalConsolidator.text}`
         : finalConsolidator.text,
+      // What the Critic actually reviewed — raw, unbannered. F23
+      // surfaces this in "How I got here" so the user can compare the
+      // Council's draft against the Critic's notes.
+      preCriticText: finalConsolidator.text,
       mode: finalConsolidator.mode,
       researcher,
       critic,
@@ -340,23 +439,35 @@ export async function runCouncilTurn(
     };
   })();
 
-  // When a warn banner is present, prepend it once at the top of the
-  // user-visible stream. The banner goes out before any Consolidator
-  // chunk so the user sees the ceiling warning first.
-  const stream: AsyncIterable<string> = warnBanner
-    ? prependBanner(warnBanner, consolidator.stream)
-    : consolidator.stream;
+  // Prepend, in order:
+  //   1. F30 soft-pause meta frames (each one line ending in `\n`).
+  //      These go out BEFORE the banner because they describe the
+  //      reason the banner/text is arriving slowly — the shelf peels
+  //      them off the wire before anything is shown.
+  //   2. F22 warn banner (a user-visible sentence).
+  //   3. Consolidator tokens.
+  //
+  // When no 429 ever fired, softPauseFrames is empty and the prefix
+  // collapses to just the banner (or nothing) — zero overhead on the
+  // happy path.
+  const stream: AsyncIterable<string> = prependFixedPrefix(
+    softPauseFrames,
+    warnBanner,
+    consolidator.stream,
+  );
 
   return { stream, done };
 }
 
-function prependBanner(
-  banner: string,
+function prependFixedPrefix(
+  metaFrames: readonly string[],
+  banner: string | null,
   inner: AsyncIterable<string>,
 ): AsyncIterable<string> {
   return {
     async *[Symbol.asyncIterator]() {
-      yield `${banner}\n\n`;
+      for (const frame of metaFrames) yield frame;
+      if (banner) yield `${banner}\n\n`;
       for await (const chunk of inner) yield chunk;
     },
   };
@@ -374,6 +485,10 @@ function cutResult(
   };
   const done = Promise.resolve({
     text: sentence,
+    // Budget cuts never run the Consolidator, so no real draft exists.
+    // Echo the cut sentence so F23 receivers can render a zero-state
+    // reveal rather than crashing on an undefined field.
+    preCriticText: sentence,
     mode: mode as CouncilMode,
     researcher: {
       ok: false,
@@ -381,6 +496,9 @@ function cutResult(
       toolCalls: [],
       tokensIn: 0,
       tokensOut: 0,
+      // Budget cuts skip the Researcher entirely — nothing was
+      // surfaced, so F24 recall rendering short-circuits.
+      recalledSummaries: [],
     } satisfies ResearcherFinding,
     critic: {
       ran: false,

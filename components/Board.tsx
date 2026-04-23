@@ -193,7 +193,8 @@ export function Board({ initialTasks }: Props) {
             <button
               type="button"
               onClick={() => setDialog({ kind: "create" })}
-              className="rounded bg-ink-900 px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card transition-colors duration-duration-fast ease-ease-standard hover:bg-ink-700"
+              // F32 — 44px tap floor per design-system §6.2.
+              className="inline-flex items-center justify-center rounded bg-ink-900 min-h-tap min-w-tap px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card transition-colors duration-duration-fast ease-ease-standard hover:bg-ink-700"
             >
               Add task
             </button>

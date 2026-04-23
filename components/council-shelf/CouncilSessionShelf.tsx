@@ -12,9 +12,19 @@ import {
 import { ProposalCard } from '@/components/proposal-card';
 import { ThinkingStream } from '@/components/thinking-stream';
 import { ChipInput } from './ChipInput';
+import { HowIGotHereReveal } from './HowIGotHereReveal';
+import { MemoryRecallReveal } from './MemoryRecallReveal';
 import { ShelfInput } from './ShelfInput';
-import { TurnList, type ShelfTurn } from './TurnList';
+import { TurnList, type ShelfTurn, type ShelfTurnSoftPause } from './TurnList';
 import { openCouncilStream } from './stream-helpers';
+import { markOnce } from '@/lib/observability/client-marks';
+import type { SoftPauseFrame } from '@/lib/council/shared/soft-pause-frame';
+import type { CriticAudit } from '@/lib/council/server/critic-audit';
+import type {
+  MemoryRecallAudit,
+  MemoryRecallItem,
+} from '@/lib/council/server/memory-recall-audit';
+import type { TransparencyMode } from '@/lib/persistence';
 
 /**
  * F22a — CouncilSessionShelf composite.
@@ -62,8 +72,95 @@ const STORAGE_KEY = 'plan.councilSessionId';
 type Mode = 'chat' | 'plan' | 'advise';
 
 type ProposalFrame = { id: string; title: string };
-type PlanTrailer = { proposals?: ProposalFrame[]; chips?: string[] };
-type AdviseTrailer = { handoff?: 'plan' };
+type CriticAuditTrailer = { criticAudit?: CriticAudit };
+type MemoryRecallTrailer = { memoryRecall?: MemoryRecallAudit };
+type TransparencyModeTrailer = { transparencyMode?: TransparencyMode };
+type RevealTrailer = CriticAuditTrailer &
+  MemoryRecallTrailer &
+  TransparencyModeTrailer;
+type PlanTrailer = RevealTrailer & {
+  proposals?: ProposalFrame[];
+  chips?: string[];
+};
+type AdviseTrailer = RevealTrailer & { handoff?: 'plan' };
+
+/**
+ * Narrow an unknown trailer fragment to a `CriticAudit` — a defensive
+ * check that keeps us honest when a future server version adds fields
+ * or a garbled trailer slips past `openCouncilStream`'s JSON parse.
+ * Returns `null` if any required shape is missing or malformed.
+ */
+function extractCriticAudit(trailer: unknown): CriticAudit | null {
+  if (!trailer || typeof trailer !== 'object') return null;
+  const raw = (trailer as CriticAuditTrailer).criticAudit;
+  if (!raw || typeof raw !== 'object') return null;
+  const risk = (raw as { risk?: unknown }).risk;
+  const review = (raw as { review?: unknown }).review;
+  const preDraft = (raw as { preDraft?: unknown }).preDraft;
+  const preDraftTruncated = (raw as { preDraftTruncated?: unknown })
+    .preDraftTruncated;
+  if (
+    (risk !== 'low' && risk !== 'medium' && risk !== 'high') ||
+    typeof review !== 'string' ||
+    typeof preDraft !== 'string'
+  ) {
+    return null;
+  }
+  const audit: CriticAudit = { risk, review, preDraft };
+  if (preDraftTruncated === true) audit.preDraftTruncated = true;
+  return audit;
+}
+
+/**
+ * F25 — narrow an unknown trailer fragment to a `TransparencyMode` if
+ * the server attached one. Returns null when the field is missing or
+ * not one of the four enum values; callers default to B in that case
+ * (matches `resolveTransparencyMode`'s server-side default so the no-
+ * row user sees identical behaviour client and server).
+ */
+function extractTransparencyMode(trailer: unknown): TransparencyMode | null {
+  if (!trailer || typeof trailer !== 'object') return null;
+  const raw = (trailer as TransparencyModeTrailer).transparencyMode;
+  if (raw === 'A' || raw === 'B' || raw === 'C' || raw === 'D') return raw;
+  return null;
+}
+
+/**
+ * Narrow an unknown trailer fragment to a `MemoryRecallAudit`. Mirrors
+ * `extractCriticAudit` — returns null when the shape is missing or any
+ * required field is malformed. A malformed entry inside `recalls` is
+ * dropped individually so a partially-bad server response still shows
+ * the good entries.
+ */
+function extractMemoryRecall(trailer: unknown): MemoryRecallAudit | null {
+  if (!trailer || typeof trailer !== 'object') return null;
+  const raw = (trailer as MemoryRecallTrailer).memoryRecall;
+  if (!raw || typeof raw !== 'object') return null;
+  const rawRecalls = (raw as { recalls?: unknown }).recalls;
+  if (!Array.isArray(rawRecalls)) return null;
+  const recalls: MemoryRecallItem[] = [];
+  for (const entry of rawRecalls) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = (entry as { id?: unknown }).id;
+    const sessionId = (entry as { sessionId?: unknown }).sessionId;
+    const createdAt = (entry as { createdAt?: unknown }).createdAt;
+    const snippet = (entry as { snippet?: unknown }).snippet;
+    const truncated = (entry as { snippetTruncated?: unknown }).snippetTruncated;
+    if (
+      typeof id !== 'string' ||
+      typeof sessionId !== 'string' ||
+      typeof createdAt !== 'string' ||
+      typeof snippet !== 'string'
+    ) {
+      continue;
+    }
+    const item: MemoryRecallItem = { id, sessionId, createdAt, snippet };
+    if (truncated === true) item.snippetTruncated = true;
+    recalls.push(item);
+  }
+  if (recalls.length === 0) return null;
+  return { recalls };
+}
 
 /**
  * Strip the fenced ```json-plan …``` block from a Plan reply before
@@ -135,6 +232,14 @@ export function CouncilSessionShelf({
   const [mode, setMode] = useState<Mode>('chat');
   const [turns, setTurns] = useState<ShelfTurn[]>([]);
   const [inFlight, setInFlight] = useState(false);
+  // F31 — late autofocus flag. We deliberately don't focus the shelf
+  // input on mount: the greeting stream is reading first and a cursor
+  // blinking in the composer below competes for the user's attention.
+  // The flag flips once the greeting lands (or immediately if the
+  // parent opted out of greetingOnMount), and ShelfInput picks it up
+  // to imperatively focus. Returning users with `greetingOnMount=false`
+  // land ready-to-type.
+  const [greetingComplete, setGreetingComplete] = useState(!greetingOnMount);
   // Ref mirror of `inFlight` so stale closures (e.g. a ChipInput
   // rendered as part of an earlier turn's `extras`) can gate their
   // own submission without re-rendering. The setter keeps both in
@@ -158,6 +263,10 @@ export function CouncilSessionShelf({
   // Initial session-id hydration on mount.
   useEffect(() => {
     sessionIdRef.current = loadSessionId();
+    // F31 — first beacon of the onboarding path timer. Tracks the
+    // "time the shelf became live" boundary so the stopwatch QA
+    // protocol can subtract navigationStart from this.
+    markOnce('council:session-mount');
   }, []);
 
   /**
@@ -251,7 +360,24 @@ export function CouncilSessionShelf({
         return;
       }
 
-      const { tokens, result } = openCouncilStream(response);
+      // F30 — accumulate any `__council_meta__` soft-pause frames the
+      // stream-helpers peel off the head of the body. Each frame is
+      // one retry; we sum them so the note reads "retried 2× after 3s"
+      // rather than surfacing only the final attempt. The frames arrive
+      // at the head (before any Consolidator byte) so the indicator
+      // shows up alongside the initial cursor, not after the stream
+      // finishes — this is what makes the "paused" state perceptible.
+      const softPauseState: ShelfTurnSoftPause = {
+        attempts: 0,
+        totalSeconds: 0,
+      };
+      const onSoftPause = (frame: SoftPauseFrame) => {
+        softPauseState.attempts += 1;
+        softPauseState.totalSeconds += frame.retrySeconds;
+        updateTurn(turnId, { softPause: { ...softPauseState } });
+      };
+
+      const { tokens, result } = openCouncilStream(response, { onSoftPause });
 
       // Render the streaming turn before we await its completion so
       // the user sees the cursor the moment the response opens.
@@ -277,7 +403,10 @@ export function CouncilSessionShelf({
       const displayText =
         runMode === 'plan' ? stripPlanFence(fullText) : fullText;
 
-      let extras: ReactNode | undefined;
+      // Collect mode-specific extras fragments; the reveal is shared
+      // across all three modes and sits last so the user reads the
+      // affordances (proposals/chips) first and the audit below.
+      const extrasFragments: ReactNode[] = [];
 
       if (runMode === 'plan' && trailer && typeof trailer === 'object') {
         const planTrailer = trailer as PlanTrailer;
@@ -294,8 +423,9 @@ export function CouncilSessionShelf({
           ? planTrailer.chips.filter((c): c is string => typeof c === 'string')
           : [];
         if (proposals.length > 0 || chips.length > 0) {
-          extras = (
+          extrasFragments.push(
             <div
+              key="plan-affordances"
               data-turn-extras-kind="plan"
               className="flex flex-col gap-space-3"
             >
@@ -329,15 +459,119 @@ export function CouncilSessionShelf({
                   ))}
                 </div>
               ) : null}
-            </div>
+            </div>,
           );
         }
       }
+
+      // F25 — resolve the user's transparency mode from the trailer.
+      // When the server didn't attach one (no reveals fired, or a
+      // non-reveal trailer such as Plan-only proposals), we default to
+      // 'B' — the same "reveal-on-demand" default the resolver uses on
+      // the server. Under mode A the server already stripped the
+      // reveal artifacts; under C we add source glyphs; under D we
+      // default-open the Critic reveal and surface unresolved dissent.
+      const transparencyMode: TransparencyMode =
+        extractTransparencyMode(trailer) ?? 'B';
+
+      // F24 — "I remembered from earlier" reveal. Every mode's trailer
+      // can carry a `memoryRecall` fragment; render it when the
+      // Researcher surfaced prior-session summaries. F24 sits above F23
+      // in the extras stack because memory feeds the draft and the
+      // draft feeds the Critic — reading top-to-bottom ("what I knew"
+      // → "what I said" → "what I flagged") matches the pipeline.
+      //
+      // F25 gating: mode A suppresses the reveal (we still call the
+      // extractor for consistency — returns null here because the
+      // server already stripped the fragment under A, but the belt-
+      // and-braces check also covers a stale client that arrived with
+      // a new mode mid-session).
+      const memoryRecall = extractMemoryRecall(trailer);
+      const showMemoryRecall = memoryRecall !== null && transparencyMode !== 'A';
+      if (showMemoryRecall && memoryRecall) {
+        extrasFragments.push(
+          <MemoryRecallReveal
+            key="memory-recall"
+            audit={memoryRecall}
+            // Mode B/D leaves the reveal collapsed by default; modes
+            // that pre-open on specialist fire aren't specified for
+            // memory (D opens Critic only per PRD §12.3). Mode C adds
+            // a source glyph to the trigger via the showSourceGlyph
+            // prop below.
+            showSourceGlyph={transparencyMode === 'C'}
+          />,
+        );
+      }
+
+      // F23 — "How I got here" reveal. Every mode's trailer can carry
+      // a `criticAudit` fragment; render it when present. F25 gates:
+      //   - A suppresses the reveal entirely
+      //   - C adds a `[C]` source glyph on the trigger
+      //   - D opens the reveal by default AND, when the Critic wasn't
+      //     convinced (risk === 'high'), shows an inline dissent banner
+      //     ABOVE the reply body so the user reads the dissent before
+      //     the reply — matching PRD §12.3 "the Critic wasn't convinced;
+      //     here's why".
+      const criticAudit = extractCriticAudit(trailer);
+      const showCriticAudit = criticAudit !== null && transparencyMode !== 'A';
+      if (showCriticAudit && criticAudit) {
+        extrasFragments.push(
+          <HowIGotHereReveal
+            key="how-i-got-here"
+            audit={criticAudit}
+            defaultOpen={transparencyMode === 'D'}
+            showSourceGlyph={transparencyMode === 'C'}
+          />,
+        );
+      }
+
+      // F25 — unresolved-dissent banner for mode D. Renders ABOVE the
+      // reply body (via a prepend into extrasFragments is wrong — it
+      // would render AFTER the body; we handle this by passing a
+      // `dissentBanner` to the turn renderer). For minimal diff we
+      // attach the banner as a separate pre-body fragment through a
+      // new turn field below. When risk isn't high we don't need to
+      // alert: D's "unresolved" proxy in v0.4 is `risk === 'high'`.
+      // Rationale: v0.4 has no pre-draft-vs-post-draft diff, so we
+      // can't literally measure "Critic wasn't accommodated"; high
+      // risk is the honest proxy — the Critic flagged something
+      // serious and the Consolidator's single pass is the final word.
+      const showDissentBanner =
+        transparencyMode === 'D' &&
+        criticAudit !== null &&
+        criticAudit.risk === 'high';
+      const dissentBanner: ReactNode | undefined = showDissentBanner
+        ? (
+            <div
+              key="dissent-banner"
+              data-dissent-banner=""
+              className={[
+                'rounded-sm border border-border-default',
+                'bg-surface-card px-space-3 py-space-2',
+                'text-size-sm font-family-body text-ink-700',
+                'flex flex-col gap-space-1',
+              ].join(' ')}
+            >
+              <span className="text-size-xs font-weight-medium text-ink-500 uppercase tracking-wide">
+                The Critic wasn&rsquo;t convinced
+              </span>
+              <p className="leading-relaxed whitespace-pre-wrap">
+                {criticAudit!.review}
+              </p>
+            </div>
+          )
+        : undefined;
+
+      const extras: ReactNode | undefined =
+        extrasFragments.length > 0 ? (
+          <div className="flex flex-col gap-space-3">{extrasFragments}</div>
+        ) : undefined;
 
       updateTurn(turnId, {
         stream: undefined,
         text: displayText,
         extras,
+        dissentBanner,
       });
 
       // Advise → Plan handoff. PRD §7: a phrase-match on the user's
@@ -366,6 +600,10 @@ export function CouncilSessionShelf({
   const fireTurn = useCallback(
     (runMode: Mode, userInput: string) => {
       if (inFlightRef.current) return;
+      // F31 — beacon: time the first user submit against session-mount
+      // to measure "how long until they said something." Fires once
+      // for the first turn of the session regardless of mode.
+      markOnce('council:first-user-submit');
       setBusy(true);
       appendUserTurn(userInput);
       void (async () => {
@@ -393,6 +631,15 @@ export function CouncilSessionShelf({
 
     let cancelled = false;
     let cancelActive: (() => Promise<void>) | null = null;
+    // F31 — fire the greeting-complete mark alongside the state flag so
+    // every termination branch (stream-ok, re-entry, bad-payload, 5xx,
+    // throw) lights up the same beacon. Keeps the three setter sites
+    // below honest about the invariant: "gate open == beacon fired."
+    const completeGreeting = () => {
+      if (cancelled) return;
+      setGreetingComplete(true);
+      markOnce('council:greeting-complete');
+    };
     (async () => {
       try {
         const response = await doFetch('/api/council/greeting', {
@@ -400,12 +647,33 @@ export function CouncilSessionShelf({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ tz: detectTimezone() }),
         });
-        if (cancelled || !response.ok) return;
+        if (cancelled) return;
+        if (!response.ok) {
+          // Server returned non-2xx — surface a silent release of the
+          // autofocus gate per F31 so the user can still type into the
+          // composer. No toast or error chrome; the Council greeting
+          // is a bonus, not a prerequisite.
+          completeGreeting();
+          return;
+        }
         const greetKind = response.headers.get('x-greeting-kind');
         if (greetKind === 'full' && response.body) {
           // Full greeting: stream it like any Council turn but with no
-          // preceding user message and no trailer handling.
-          const handle = openCouncilStream(response);
+          // preceding user message and no trailer handling. F30 — if
+          // the greeting route retried a 429 before composing, surface
+          // the pause on the greeting turn too so the user knows why
+          // the first reply hesitated.
+          const turnId = nextTurnId('g');
+          const softPauseState: ShelfTurnSoftPause = {
+            attempts: 0,
+            totalSeconds: 0,
+          };
+          const onSoftPause = (frame: SoftPauseFrame) => {
+            softPauseState.attempts += 1;
+            softPauseState.totalSeconds += frame.retrySeconds;
+            updateTurn(turnId, { softPause: { ...softPauseState } });
+          };
+          const handle = openCouncilStream(response, { onSoftPause });
           cancelActive = handle.cancel;
           // If the component unmounted before ThinkingStream got a
           // chance to mount the iterator, the reader would otherwise
@@ -415,7 +683,6 @@ export function CouncilSessionShelf({
             await handle.cancel();
             return;
           }
-          const turnId = nextTurnId('g');
           appendCouncilTurn({
             kind: 'council',
             id: turnId,
@@ -430,20 +697,30 @@ export function CouncilSessionShelf({
             saveSessionId(echoedId);
           }
           updateTurn(turnId, { stream: undefined, text: fullText });
+          completeGreeting();
         } else {
           // Re-entry: JSON { kind: 'reentry', text: '...' }
           const payload = (await response.json().catch(() => null)) as {
             text?: string;
           } | null;
-          if (cancelled || !payload?.text) return;
+          if (cancelled || !payload?.text) {
+            // Empty/malformed re-entry payload is still a "greeting
+            // done" signal for the autofocus flag — the shelf is idle.
+            completeGreeting();
+            return;
+          }
           appendCouncilTurn({
             kind: 'council',
             id: nextTurnId('g'),
             text: payload.text,
           });
+          completeGreeting();
         }
       } catch {
-        /* greeting is best-effort */
+        // Greeting is best-effort; still release the autofocus gate so
+        // the user isn't locked out of typing because the greeting
+        // route errored.
+        completeGreeting();
       }
     })();
 
@@ -480,6 +757,7 @@ export function CouncilSessionShelf({
         onSubmit={onSubmit}
         disabled={inFlight}
         placeholder={modePlaceholder}
+        autoFocus={greetingComplete}
       />
     </div>
   );
@@ -553,14 +831,24 @@ function ModePicker({
             onClick={() => onChange(opt.value)}
             data-mode-option={opt.value}
             data-selected={selected ? 'true' : 'false'}
+            // F32 — min-h-tap lifts the mode-radio hit area to the
+            // 44px mobile floor (design-system §6.2). Padding stays
+            // compact so three pills still fit across 343px of shelf
+            // body at iPhone SE width.
             className={[
-              'rounded-full px-space-3 py-space-1',
+              'inline-flex items-center justify-center',
+              'rounded-full min-h-tap min-w-tap px-space-3 py-space-1',
               'text-size-sm font-family-body',
               'border border-border-default',
               'transition-colors duration-duration-fast ease-ease-standard',
               'focus-visible:shadow-ring-focus',
+              // F32 — fix pre-existing bug: `text-surface-page` was an
+              // undefined token (the ink-on-dark foreground uses the
+              // warm off-white `surface-card` per design-system §4.2).
+              // Left unchanged, the selected pill rendered ink-900 on
+              // ink-900 and the label was invisible.
               selected
-                ? 'bg-ink-900 text-surface-page'
+                ? 'bg-ink-900 text-surface-card'
                 : 'text-ink-700 hover:text-ink-900',
               'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ')}

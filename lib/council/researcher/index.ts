@@ -1,9 +1,14 @@
-import type { CouncilMode, TaskRow } from '@/lib/persistence/types';
+import type {
+  CouncilMemorySummaryRow,
+  CouncilMode,
+  TaskRow,
+} from '@/lib/persistence/types';
 import type { CouncilMemoryRepository } from '@/lib/persistence/council-memory-repository';
 import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
+import { retryOn429, type SoftPauseInfo } from '../shared/retry-on-429';
 
 /**
  * F09 — Researcher agent.
@@ -33,6 +38,21 @@ export type ResearcherInput = {
   webEnabled: boolean;
 };
 
+/**
+ * Structured handle on a memory summary the Researcher surfaced into
+ * the Consolidator's system prompt. F24 uses this to persist a
+ * `memory_recalls` row per surfaced summary and to render the inline
+ * "I remembered from …" reveal. `content` is the raw summary text (the
+ * dispatch layer truncates it for display); `sessionId` + `createdAt`
+ * label the source session.
+ */
+export type ResearcherRecalledSummary = {
+  id: string;
+  content: string;
+  sessionId: string;
+  createdAt: string;
+};
+
 export type ResearcherFinding = {
   ok: boolean;
   /** Always populated — on failure this is the honest one-liner. */
@@ -40,6 +60,12 @@ export type ResearcherFinding = {
   toolCalls: unknown[];
   tokensIn: number;
   tokensOut: number;
+  /**
+   * F24 — memory summaries surfaced into the Consolidator's system
+   * prompt this turn. Empty array when no prior-session summaries were
+   * available (new users, memory read failure, degraded path).
+   */
+  recalledSummaries: ResearcherRecalledSummary[];
 };
 
 export type ResearcherDeps = {
@@ -54,6 +80,20 @@ export type ResearcherDeps = {
     message: string;
     cause?: unknown;
   }) => void;
+  /**
+   * F30 — fires when the Anthropic call is 429'd and we're about to
+   * sleep before a retry. Dispatch wires this into the soft-pause meta
+   * frame stream so the shelf can render a countdown indicator. The
+   * Researcher only invokes the hook when one is supplied; no-op when
+   * omitted so standalone tests don't need a stub.
+   */
+  onSoftPause?: (info: SoftPauseInfo) => void;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep so unit tests
+   * don't wait real wall-clock between backoff attempts. Production
+   * leaves this unset and the default `setTimeout` sleep is used.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   /** Optional logger (defaults to console.error on failure path). */
   log?: (msg: string, err: unknown) => void;
 };
@@ -136,13 +176,17 @@ export async function research(
     const used = incrementWebCallCount(input.mode, input.sessionId);
     if (used > cap) {
       // Not an error — the calm one-liner tells the user we hit the
-      // cap. Consolidator weaves it in as the finding.
+      // cap. Consolidator weaves it in as the finding. No memory read
+      // happens on this fast-return path, so recalledSummaries is
+      // empty — the rate-limit turn doesn't surface prior-session
+      // context anyway.
       return {
         ok: true,
         text: "I've already reached this session's web-research limit; staying with what we have.",
         toolCalls: [],
         tokensIn: 0,
         tokensOut: 0,
+        recalledSummaries: [],
       };
     }
   }
@@ -155,7 +199,7 @@ export async function research(
     // and not F18 — so we degrade to "no prior summaries" instead of
     // collapsing the whole research turn when the read fails. Real
     // SDK failure still falls through to the outer fail-visible path.
-    let summaries: Array<{ content: string }> = [];
+    let summaries: CouncilMemorySummaryRow[] = [];
     try {
       summaries = await deps.memoryRepo.listSummariesForUser(
         input.userId,
@@ -171,6 +215,17 @@ export async function research(
       summaries.length > 0
         ? summaries.map((s) => `- ${s.content}`).join('\n')
         : '(no prior-session summaries yet)';
+    // F24 — expose the structured summaries so dispatch can persist a
+    // recall row per surfaced summary and render the "I remembered …"
+    // reveal. We keep all four fields because the UI needs date
+    // attribution and the persistence layer needs the summary id as
+    // part of the audit trail embedded in `snippet`.
+    const recalledSummaries: ResearcherRecalledSummary[] = summaries.map((s) => ({
+      id: s.id,
+      content: s.content,
+      sessionId: s.session_id,
+      createdAt: s.created_at,
+    }));
 
     // The Anthropic server-side web_search tool isn't fully typed in
     // @anthropic-ai/sdk@0.39; we cast the tool descriptor locally.
@@ -184,13 +239,20 @@ export async function research(
       ? T
       : never;
 
-    const response = await client.messages.create({
-      model: COUNCIL_MODEL,
-      max_tokens: 1024,
-      system: `You are the Council's research agent, backstage. Return a compact plain-prose finding for the Consolidator.\nMemory summaries:\n${memoryBlock}`,
-      messages: [{ role: 'user', content: buildPrompt(input) }],
-      // Web tool is only attached in Plan mode.
-      ...(input.webEnabled ? { tools: [webTool] } : {}),
+    const response = await retryOn429({
+      attempt: () =>
+        client.messages.create({
+          model: COUNCIL_MODEL,
+          max_tokens: 1024,
+          system: `You are the Council's research agent, backstage. Return a compact plain-prose finding for the Consolidator.\nMemory summaries:\n${memoryBlock}`,
+          messages: [{ role: 'user', content: buildPrompt(input) }],
+          // Web tool is only attached in Plan mode.
+          ...(input.webEnabled ? { tools: [webTool] } : {}),
+        }),
+      onBackoff: (info) => {
+        deps.onSoftPause?.(info);
+      },
+      sleep: deps.retrySleep,
     });
 
     const text = extractText(response);
@@ -232,7 +294,14 @@ export async function research(
       );
     }
 
-    return { ok: true, text, toolCalls, tokensIn, tokensOut };
+    return {
+      ok: true,
+      text,
+      toolCalls,
+      tokensIn,
+      tokensOut,
+      recalledSummaries,
+    };
   } catch (err) {
     log('researcher: call failed', err);
     if (deps.errorHook) {
@@ -266,6 +335,7 @@ export async function research(
       toolCalls: [],
       tokensIn: 0,
       tokensOut: 0,
+      recalledSummaries: [],
     };
   }
 }

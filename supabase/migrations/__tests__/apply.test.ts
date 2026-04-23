@@ -197,6 +197,54 @@ describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, 
     expect(after.rows.every((r) => r.ended_at !== null)).toBe(true);
   });
 
+  it('creates the council_sessions_with_stats view with security_invoker = true (F28)', async () => {
+    // Same pattern as `council_metrics_daily`: the view reads an
+    // RLS-protected base table, so it must execute with caller
+    // privileges or it leaks cross-user aggregates.
+    const viewExists = await db.query<{ viewname: string }>(
+      `select viewname from pg_views
+        where schemaname = 'public' and viewname = 'council_sessions_with_stats'`,
+    );
+    expect(viewExists.rows).toHaveLength(1);
+
+    const options = await db.query<{ reloptions: string[] | null }>(
+      `select reloptions from pg_class
+        where relname = 'council_sessions_with_stats' and relkind = 'v'`,
+    );
+    const opts = options.rows[0]?.reloptions ?? [];
+    expect(
+      opts.some((o) => o === 'security_invoker=true'),
+      'council_sessions_with_stats must be declared WITH (security_invoker = true)',
+    ).toBe(true);
+  });
+
+  it('adds the council_turns.content_fts generated column + GIN index (F28)', async () => {
+    // Generated column exists and is of type tsvector.
+    const columnRow = await db.query<{
+      column_name: string;
+      data_type: string;
+      is_generated: string;
+    }>(
+      `select column_name, data_type, is_generated
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name   = 'council_turns'
+          and column_name  = 'content_fts'`,
+    );
+    expect(columnRow.rows).toHaveLength(1);
+    expect(columnRow.rows[0].data_type).toBe('tsvector');
+    expect(columnRow.rows[0].is_generated).toBe('ALWAYS');
+
+    // Matching GIN index exists.
+    const idxRow = await db.query<{ indexname: string; indexdef: string }>(
+      `select indexname, indexdef from pg_indexes
+        where schemaname = 'public'
+          and indexname  = 'council_turns_content_fts_idx'`,
+    );
+    expect(idxRow.rows).toHaveLength(1);
+    expect(idxRow.rows[0].indexdef).toMatch(/gin/i);
+  });
+
   it('creates every hot-path index from migration 010', async () => {
     const expectedIndexes = [
       'council_turns_session_created_idx',
@@ -213,5 +261,93 @@ describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, 
     for (const idx of expectedIndexes) {
       expect(actual.has(idx), `expected index ${idx} to exist`).toBe(true);
     }
+  });
+
+  it('deleting a council_sessions row cascades through every F29-scope child table', async () => {
+    // F29 depends on the full cascade chain holding: a single DELETE
+    // against council_sessions must remove every per-session artifact.
+    // If a future migration drops ON DELETE CASCADE on any of these
+    // FKs, F29 starts leaving orphan rows and this test fails before
+    // the regression ships.
+    //
+    // We seed one session with one turn, one critic diff attached to
+    // that turn, one memory recall attached to that turn, and one
+    // memory summary attached to the session. Then we delete the
+    // session and assert every child row is gone. `council_proposals`
+    // is intentionally not in this test — its session_id FK is
+    // `ON DELETE SET NULL` by design (audit surface).
+    const userRes = await db.query<{ id: string }>(
+      `insert into auth.users (id, email) values
+         (gen_random_uuid(), 'cascade@example.com')
+         returning id`,
+    );
+    const userId = userRes.rows[0].id;
+
+    const sessionRes = await db.query<{ id: string }>(
+      `insert into public.council_sessions (user_id, mode, auth_session_id)
+         values ($1, 'chat', 'auth-cascade')
+         returning id`,
+      [userId],
+    );
+    const sessionId = sessionRes.rows[0].id;
+
+    const turnRes = await db.query<{ id: string }>(
+      `insert into public.council_turns
+         (session_id, user_id, agent, role, content)
+         values ($1, $2, 'user', 'user', 'cascade seed')
+         returning id`,
+      [sessionId, userId],
+    );
+    const turnId = turnRes.rows[0].id;
+
+    await db.query(
+      `insert into public.critic_diffs
+         (turn_id, user_id, diff, risk_level)
+         values ($1, $2, 'n/a', 'low')`,
+      [turnId, userId],
+    );
+    await db.query(
+      `insert into public.memory_recalls
+         (turn_id, user_id, snippet)
+         values ($1, $2, 'remember this')`,
+      [turnId, userId],
+    );
+    await db.query(
+      `insert into public.council_memory_summaries
+         (user_id, session_id, kind, content)
+         values ($1, $2, 'session-end', 'summary body')`,
+      [userId, sessionId],
+    );
+
+    // Sanity: every child row is in place before the cascade.
+    const before = await db.query<{ n: number }>(
+      `select (
+        (select count(*) from public.council_turns where session_id = $1) +
+        (select count(*) from public.critic_diffs where turn_id = $2) +
+        (select count(*) from public.memory_recalls where turn_id = $2) +
+        (select count(*) from public.council_memory_summaries where session_id = $1)
+       )::int as n`,
+      [sessionId, turnId],
+    );
+    expect(before.rows[0].n).toBe(4);
+
+    await db.query(
+      `delete from public.council_sessions where id = $1`,
+      [sessionId],
+    );
+
+    const after = await db.query<{ n: number }>(
+      `select (
+        (select count(*) from public.council_turns where session_id = $1) +
+        (select count(*) from public.critic_diffs where turn_id = $2) +
+        (select count(*) from public.memory_recalls where turn_id = $2) +
+        (select count(*) from public.council_memory_summaries where session_id = $1)
+       )::int as n`,
+      [sessionId, turnId],
+    );
+    expect(
+      after.rows[0].n,
+      'F29 cascade broken — a per-session child table did not remove its rows',
+    ).toBe(0);
   });
 });

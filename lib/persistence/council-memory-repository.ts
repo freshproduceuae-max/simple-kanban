@@ -5,7 +5,13 @@ export interface CouncilMemoryRepository {
   listSummariesForUser(userId: string, limit?: number): Promise<CouncilMemorySummaryRow[]>;
   writeSummary(input: Omit<CouncilMemorySummaryRow, 'id' | 'created_at'>): Promise<CouncilMemorySummaryRow>;
   writeRecall(input: Omit<MemoryRecallRow, 'id' | 'created_at'>): Promise<MemoryRecallRow>;
-  listRecallsForTurn(turnId: string): Promise<MemoryRecallRow[]>;
+  /**
+   * Read recalls for a given Consolidator turn. `userId` is required
+   * so the query stays safe on the service-role path (RLS is
+   * defence-in-depth; the filter is the real fence). Follows the
+   * project-wide "always filter by user_id" rule.
+   */
+  listRecallsForTurn(userId: string, turnId: string): Promise<MemoryRecallRow[]>;
 }
 
 export class CouncilMemoryRepositoryNotImplemented implements CouncilMemoryRepository {
@@ -18,7 +24,7 @@ export class CouncilMemoryRepositoryNotImplemented implements CouncilMemoryRepos
   async writeRecall(_input: Omit<MemoryRecallRow, 'id' | 'created_at'>): Promise<MemoryRecallRow> {
     throw new Error('CouncilMemoryRepository: implementation lands with F24');
   }
-  async listRecallsForTurn(_turnId: string): Promise<MemoryRecallRow[]> {
+  async listRecallsForTurn(_userId: string, _turnId: string): Promise<MemoryRecallRow[]> {
     throw new Error('CouncilMemoryRepository: implementation lands with F24');
   }
 }

@@ -88,13 +88,91 @@ describe('reportAgentError', () => {
       throw new Error('resend-down');
     });
     const log = vi.fn();
+    const recordErrorEvent = vi.fn(async () => {});
     const res = await reportAgentError(
       { userId: 'u', agent: 'critic', failureClass: 'unknown', message: 'x' },
-      { resend: { emails: { send } }, log },
+      { resend: { emails: { send } }, log, recordErrorEvent },
     );
     expect(res).toEqual({ sent: false, reason: 'send-failed' });
     expect(log).toHaveBeenCalledWith(
       'errors/email: send failed (fail-quiet)',
+      expect.any(Error),
+    );
+  });
+
+  it('persists an admin_error_events row when the send fails (F27)', async () => {
+    const send = vi.fn(async () => {
+      throw new Error('resend-down');
+    });
+    const recordErrorEvent = vi.fn(async () => {});
+    const res = await reportAgentError(
+      {
+        userId: 'u7',
+        agent: 'researcher',
+        failureClass: 'anthropic_error',
+        message: 'boom',
+      },
+      { resend: { emails: { send } }, recordErrorEvent },
+    );
+    expect(res).toEqual({ sent: false, reason: 'send-failed' });
+    // The recorder is fired via `void` inside the catch so we wait a
+    // microtask tick before asserting.
+    await Promise.resolve();
+    expect(recordErrorEvent).toHaveBeenCalledTimes(1);
+    expect(recordErrorEvent).toHaveBeenCalledWith({
+      user_id: 'u7',
+      kind: 'email_send_failed',
+      agent: 'researcher',
+      reason: 'send-failed',
+    });
+  });
+
+  it('does not persist an admin_error_events row on the happy path', async () => {
+    const send = vi.fn(async () => ({ id: 'e1' }));
+    const recordErrorEvent = vi.fn(async () => {});
+    const res = await reportAgentError(
+      {
+        userId: 'u8',
+        agent: 'critic',
+        failureClass: 'anthropic_error',
+        message: 'ok',
+      },
+      { resend: { emails: { send } }, recordErrorEvent },
+    );
+    expect(res).toEqual({ sent: true });
+    await Promise.resolve();
+    expect(recordErrorEvent).not.toHaveBeenCalled();
+  });
+
+  it('does not persist when the failure is no-recipient / deduped (F27)', async () => {
+    delete process.env.ERROR_EMAIL_RECIPIENT;
+    const recordErrorEvent = vi.fn(async () => {});
+    const res = await reportAgentError(
+      { userId: 'u', agent: 'critic', failureClass: 'unknown', message: 'x' },
+      { resend: { emails: { send: vi.fn() } }, recordErrorEvent },
+    );
+    expect(res).toEqual({ sent: false, reason: 'no-recipient' });
+    await Promise.resolve();
+    expect(recordErrorEvent).not.toHaveBeenCalled();
+  });
+
+  it('swallows a recorder rejection so the fail-quiet contract holds (F27)', async () => {
+    const send = vi.fn(async () => {
+      throw new Error('resend-down');
+    });
+    const log = vi.fn();
+    const recordErrorEvent = vi.fn(async () => {
+      throw new Error('supabase-down');
+    });
+    const res = await reportAgentError(
+      { userId: 'u', agent: 'critic', failureClass: 'unknown', message: 'x' },
+      { resend: { emails: { send } }, log, recordErrorEvent },
+    );
+    expect(res).toEqual({ sent: false, reason: 'send-failed' });
+    // Flush the recorder microtask + catch handler.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(log).toHaveBeenCalledWith(
+      'errors/email: recorder rejected (fail-quiet)',
       expect.any(Error),
     );
   });

@@ -7,6 +7,8 @@ const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
 const findResumableSession = vi.fn();
+const getForUserPref = vi.fn();
+const upsertPref = vi.fn();
 const REAL_UUID = 'ffffffff-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -43,6 +45,10 @@ vi.mock('@/lib/persistence/server', () => ({
     listForUser: vi.fn(async () => []),
     dailyTokenTotalForUser: vi.fn(async () => 0),
   }),
+  getUserPreferencesRepository: () => ({
+    getForUser: (...a: unknown[]) => getForUserPref(...a),
+    upsert: (...a: unknown[]) => upsertPref(...a),
+  }),
 }));
 
 import { POST as adviseRoute } from '../route';
@@ -56,16 +62,45 @@ function req(body: unknown): Request {
   });
 }
 
-function fakeTurn(text = 'advise reply') {
+function fakeTurn(
+  text = 'advise reply',
+  critic?: {
+    ran: boolean;
+    risk?: 'low' | 'medium' | 'high';
+    review?: string | null;
+  },
+  recalledSummaries?: Array<{
+    id: string;
+    content: string;
+    sessionId: string;
+    createdAt: string;
+  }>,
+) {
   return {
     stream: (async function* () {
       yield text;
     })(),
     done: Promise.resolve({
       text,
+      preCriticText: text,
       mode: 'advise',
-      researcher: { ok: true, text: '', toolCalls: [], tokensIn: 0, tokensOut: 0 },
-      critic: { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
+      researcher: {
+        ok: true,
+        text: '',
+        toolCalls: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        recalledSummaries: recalledSummaries ?? [],
+      },
+      critic: critic
+        ? {
+            ran: critic.ran,
+            risk: critic.risk ?? 'low',
+            review: critic.review ?? null,
+            tokensIn: 0,
+            tokensOut: 0,
+          }
+        : { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
     }),
   };
 }
@@ -93,6 +128,9 @@ describe('POST /api/council/advise', () => {
     writeSummary.mockReset();
     endSession.mockReset();
     findResumableSession.mockReset();
+    getForUserPref.mockReset();
+    upsertPref.mockReset();
+    getForUserPref.mockResolvedValue(null);
     findResumableSession.mockImplementation(
       async ({ sessionId }: { sessionId: string }) => ({
         id: sessionId,
@@ -230,5 +268,207 @@ describe('POST /api/council/advise', () => {
     );
     expect(res.headers.get('x-council-session-id')).toBe(clientId);
     expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('F23: merges criticAudit into the handoff trailer when both apply', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('let me draft that for you.', {
+        ran: true,
+        risk: 'high',
+        review: 'The draft glosses over the dependency on the vendor SLA.',
+      }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.handoff).toBe('plan');
+    expect(trailer.criticAudit).toEqual({
+      risk: 'high',
+      review: 'The draft glosses over the dependency on the vendor SLA.',
+      preDraft: 'let me draft that for you.',
+    });
+  });
+
+  it('F23: emits a criticAudit-only trailer when the Critic runs without a handoff', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('here is how I see the board.', {
+        ran: true,
+        risk: 'low',
+        review: 'Nothing to tone down.',
+      }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how does this board look?' }),
+    );
+    // No handoff phrase → no x-council-has-proposals header.
+    expect(res.headers.get('x-council-has-proposals')).toBeNull();
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    // F25 — transparencyMode rides alongside reveal fragments; default
+    // preference row = B.
+    expect(trailer).toEqual({
+      criticAudit: {
+        risk: 'low',
+        review: 'Nothing to tone down.',
+        preDraft: 'here is how I see the board.',
+      },
+      transparencyMode: 'B',
+    });
+  });
+
+  // -------- F24: memoryRecall trailer fragment --------
+
+  it('F24: emits a memoryRecall-only trailer on Advise when memory fired and there is no handoff', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('looks steady.', undefined, [
+        {
+          id: 'sum-a',
+          content: 'Yesterday you flagged the vendor risk on the SLA card.',
+          sessionId: 'sess-old',
+          createdAt: '2026-04-21T10:00:00Z',
+        },
+      ]),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how does this board look?' }),
+    );
+    expect(res.headers.get('x-council-has-proposals')).toBeNull();
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    // F25 — transparencyMode rides alongside reveal fragments; default
+    // preference row = B.
+    expect(trailer).toEqual({
+      memoryRecall: {
+        recalls: [
+          {
+            id: 'sum-a',
+            sessionId: 'sess-old',
+            createdAt: '2026-04-21T10:00:00Z',
+            snippet: 'Yesterday you flagged the vendor risk on the SLA card.',
+          },
+        ],
+      },
+      transparencyMode: 'B',
+    });
+  });
+
+  it('F24: merges memoryRecall with a handoff trailer on Advise → Plan', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('let me draft that for you.', undefined, [
+        {
+          id: 'sum-h',
+          content: 'You wanted the draft rooted in last quarter.',
+          sessionId: 'sess-h',
+          createdAt: '2026-04-15T12:00:00Z',
+        },
+      ]),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    expect(res.headers.get('x-council-has-proposals')).toBe('true');
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.handoff).toBe('plan');
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-h');
+  });
+
+  it('F24: merges memoryRecall + criticAudit + handoff when all three apply', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'let me draft that for you.',
+        {
+          ran: true,
+          risk: 'high',
+          review: 'Draft glosses over the vendor SLA dependency.',
+        },
+        [
+          {
+            id: 'sum-triple',
+            content: 'You were burned by this vendor in Q1.',
+            sessionId: 'sess-triple',
+            createdAt: '2026-01-20T12:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.handoff).toBe('plan');
+    expect(trailer.criticAudit.risk).toBe('high');
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-triple');
+  });
+
+  // -------- F25: transparency-mode trailer + server-side mode-A suppression --------
+
+  it('F25: passes transparencyMode through alongside reveals', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'D',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('reflecting…', {
+        ran: true,
+        risk: 'high',
+        review: 'the draft overreaches.',
+      }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how do you see this?' }),
+    );
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('D');
+  });
+
+  it('F25: suppresses reveals server-side under mode A but still ships the handoff cue', async () => {
+    // Handoff is a client-routing cue, not a reveal — mode A must
+    // preserve it. Critic + memory are dropped.
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'let me draft that for you.',
+        { ran: true, risk: 'high', review: 'would normally flag.' },
+        [
+          {
+            id: 'sum-dropA',
+            content: 'prior context',
+            sessionId: 'sess-dropA',
+            createdAt: '2026-04-10T00:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    expect(res.headers.get('x-council-has-proposals')).toBe('true');
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer).toEqual({ handoff: 'plan' });
+  });
+
+  it('F25: under mode A with no handoff + no reveals, emits no trailer', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('looks steady.', { ran: true, risk: 'low', review: 'ok.' }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how does this look?' }),
+    );
+    expect(await res.text()).toBe('looks steady.');
   });
 });

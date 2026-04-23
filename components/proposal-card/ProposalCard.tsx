@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { markOnce } from '@/lib/observability/client-marks';
 
 /**
  * F13 — Proposal card + tap-to-approve flow.
@@ -68,6 +69,11 @@ export function ProposalCard({
 
   const doApprove = async () => {
     if (state.kind !== 'pending') return;
+    // F31 — fire the terminal beacon in the first-run path. The gap
+    // between `council:first-user-submit` and this mark is "time the
+    // Council needed to produce a tappable, trusted proposal" — the
+    // core 60-second onboarding KPI per vision §6.
+    markOnce('council:first-proposal-tap');
     setState({ kind: 'approving' });
     const fetcher = approveFetch ?? fetch;
     try {
@@ -138,8 +144,13 @@ export function ProposalCard({
         <button
           type="button"
           onClick={doApprove}
+          // F32 — the terminal tap in the onboarding stopwatch path
+          // (vision §6 / F31). `min-h-tap` + `min-w-tap` guarantee the
+          // 44px mobile hit area the design-system mandates (§6.2)
+          // without loudening the text-led affordance (§8.6).
           className={[
-            'mt-3 inline-flex items-center gap-1 text-sm',
+            'mt-3 inline-flex items-center justify-center gap-1',
+            'min-h-tap min-w-tap text-sm',
             'text-[var(--color-accent-moss-700)] underline underline-offset-4',
             'hover:text-[var(--color-ink-900)] focus-visible:outline-none',
             'focus-visible:ring-[var(--ring-focus)]',
@@ -170,7 +181,13 @@ export function ProposalCard({
           <button
             type="button"
             onClick={() => setState({ kind: 'pending' })}
-            className="text-sm text-[var(--color-accent-moss-700)] underline underline-offset-4"
+            // F32 — 44px tap floor on the recovery path, same contract
+            // as the Approve affordance above.
+            className={[
+              'inline-flex items-center justify-center min-h-tap min-w-tap',
+              'text-sm text-[var(--color-accent-moss-700)]',
+              'underline underline-offset-4',
+            ].join(' ')}
           >
             Try again
           </button>

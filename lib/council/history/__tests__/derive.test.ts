@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildHistoryRow,
+  buildHistoryRowFromStats,
   deriveDurationMs,
   deriveSessionOutcome,
   deriveSessionTitle,
+  deriveTitleFromStats,
   formatDuration,
   sumSessionTokens,
   FALLBACK_TITLE,
@@ -11,6 +13,7 @@ import {
 } from '../derive';
 import type {
   CouncilSessionRow,
+  CouncilSessionStatsRow,
   CouncilTurnRow,
 } from '@/lib/persistence/types';
 
@@ -165,5 +168,86 @@ describe('buildHistoryRow', () => {
       outcome: 'done',
       durationMs: 5 * 60 * 1000,
     });
+  });
+});
+
+describe('deriveTitleFromStats (F28)', () => {
+  it('returns the fallback for null content', () => {
+    expect(deriveTitleFromStats(null)).toBe(FALLBACK_TITLE);
+  });
+  it('returns the fallback for whitespace-only content', () => {
+    expect(deriveTitleFromStats('   \n\t ')).toBe(FALLBACK_TITLE);
+  });
+  it('collapses whitespace like the turn-based path', () => {
+    expect(deriveTitleFromStats('help me   plan\nlaunch\t')).toBe(
+      'help me plan launch',
+    );
+  });
+  it('truncates long content and appends an ellipsis', () => {
+    const long = 'a'.repeat(200);
+    const out = deriveTitleFromStats(long);
+    expect(out.length).toBe(MAX_TITLE_CHARS);
+    expect(out.endsWith('…')).toBe(true);
+  });
+});
+
+describe('buildHistoryRowFromStats (F28)', () => {
+  function stats(
+    overrides: Partial<CouncilSessionStatsRow> = {},
+  ): CouncilSessionStatsRow {
+    return {
+      id: 'session-1',
+      user_id: 'u1',
+      mode: 'chat',
+      started_at: '2026-04-21T12:00:00Z',
+      ended_at: '2026-04-21T12:10:00Z',
+      summary_written_at: null,
+      tokens_in_sum: 12,
+      tokens_out_sum: 34,
+      total_tokens: 46,
+      turn_count: 2,
+      outcome: 'done',
+      first_user_content: 'plan the launch',
+      ...overrides,
+    };
+  }
+
+  it('maps view columns to the history row shape with no turn fetch needed', () => {
+    expect(buildHistoryRowFromStats(stats())).toEqual({
+      id: 'session-1',
+      mode: 'chat',
+      startedAt: '2026-04-21T12:00:00Z',
+      endedAt: '2026-04-21T12:10:00Z',
+      title: 'plan the launch',
+      tokenCost: 46,
+      turnCount: 2,
+      outcome: 'done',
+      durationMs: 10 * 60 * 1000,
+    });
+  });
+
+  it('forwards the outcome the view derived (empty / ongoing / done)', () => {
+    expect(
+      buildHistoryRowFromStats(
+        stats({ outcome: 'empty', first_user_content: null, turn_count: 0 }),
+      ).outcome,
+    ).toBe('empty');
+    expect(
+      buildHistoryRowFromStats(stats({ outcome: 'ongoing', ended_at: null }))
+        .outcome,
+    ).toBe('ongoing');
+  });
+
+  it('falls back on title when first_user_content is null', () => {
+    expect(
+      buildHistoryRowFromStats(stats({ first_user_content: null })).title,
+    ).toBe(FALLBACK_TITLE);
+  });
+
+  it('returns null durationMs for ongoing sessions', () => {
+    expect(
+      buildHistoryRowFromStats(stats({ ended_at: null, outcome: 'ongoing' }))
+        .durationMs,
+    ).toBeNull();
   });
 });

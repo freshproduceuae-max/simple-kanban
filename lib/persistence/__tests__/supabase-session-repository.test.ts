@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SupabaseSessionRepository } from '../supabase-session-repository';
-import type { CouncilSessionRow, CouncilTurnRow } from '../types';
+import type {
+  CouncilSessionRow,
+  CouncilSessionStatsRow,
+  CouncilTurnRow,
+} from '../types';
 
 /**
  * F18 unit coverage for the Supabase builder-chain contract of the
@@ -20,10 +24,14 @@ function chain<T>(result: Result<T>) {
     'delete',
     'eq',
     'lt',
+    'gte',
+    'lte',
     'is',
+    'in',
     'or',
     'order',
     'limit',
+    'textSearch',
   ] as const;
   for (const m of methods) self[m] = vi.fn(() => self);
   self.single = vi.fn(async () => result);
@@ -36,10 +44,14 @@ function chain<T>(result: Result<T>) {
     delete: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
     lt: ReturnType<typeof vi.fn>;
+    gte: ReturnType<typeof vi.fn>;
+    lte: ReturnType<typeof vi.fn>;
     is: ReturnType<typeof vi.fn>;
+    in: ReturnType<typeof vi.fn>;
     or: ReturnType<typeof vi.fn>;
     order: ReturnType<typeof vi.fn>;
     limit: ReturnType<typeof vi.fn>;
+    textSearch: ReturnType<typeof vi.fn>;
     single: ReturnType<typeof vi.fn>;
     maybeSingle: ReturnType<typeof vi.fn>;
   };
@@ -345,6 +357,226 @@ describe('SupabaseSessionRepository (F18)', () => {
     });
   });
 
+  describe('listSessionsByIds (F27)', () => {
+    it('short-circuits on an empty id list without a round trip', async () => {
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const got = await repo.listSessionsByIds({
+        userId: 'u1',
+        sessionIds: [],
+      });
+      expect(got).toEqual([]);
+      expect(fromSpy).not.toHaveBeenCalled();
+    });
+
+    it('filters by user_id and `.in(id, ids)` with a 2000-cap', async () => {
+      const builder = chain<CouncilSessionRow[]>({
+        data: [sessionRow],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const ids = Array.from({ length: 2500 }, (_, i) => `id-${i}`);
+      await repo.listSessionsByIds({ userId: 'u1', sessionIds: ids });
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      const inCall = builder.in.mock.calls[0];
+      expect(inCall[0]).toBe('id');
+      expect(inCall[1]).toHaveLength(2000);
+    });
+  });
+
+  describe('searchSessionsForUser (F28)', () => {
+    const statsRow: CouncilSessionStatsRow = {
+      id: 'session-1',
+      user_id: 'u1',
+      mode: 'chat',
+      started_at: '2026-04-21T00:00:00Z',
+      ended_at: null,
+      summary_written_at: null,
+      tokens_in_sum: 10,
+      tokens_out_sum: 20,
+      total_tokens: 30,
+      turn_count: 2,
+      outcome: 'ongoing',
+      first_user_content: 'hello',
+    };
+
+    it('reads the stats view with user scope, order, limit — no FTS when query is empty', async () => {
+      const builder = chain<CouncilSessionStatsRow[]>({
+        data: [statsRow],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const got = await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: { limit: 10 },
+      });
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions_with_stats');
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.order).toHaveBeenCalledWith('started_at', {
+        ascending: false,
+      });
+      expect(builder.limit).toHaveBeenCalledWith(10);
+      expect(builder.textSearch).not.toHaveBeenCalled();
+      expect(got).toHaveLength(1);
+    });
+
+    it('clamps limit to [1, 100] and defaults to 25 when unset', async () => {
+      const builder = chain<CouncilSessionStatsRow[]>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      await repo.searchSessionsForUser({ userId: 'u1' });
+      expect(builder.limit).toHaveBeenCalledWith(25);
+
+      builder.limit.mockClear();
+      await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: { limit: 500 },
+      });
+      expect(builder.limit).toHaveBeenCalledWith(100);
+
+      builder.limit.mockClear();
+      await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: { limit: 0 },
+      });
+      expect(builder.limit).toHaveBeenCalledWith(1);
+    });
+
+    it('applies every non-FTS filter: modes, outcomes, dates, token range, cursor', async () => {
+      const builder = chain<CouncilSessionStatsRow[]>({
+        data: [statsRow],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: {
+          modes: ['plan', 'chat'],
+          outcomes: ['done', 'ongoing'],
+          dateFrom: '2026-04-01T00:00:00Z',
+          dateTo: '2026-04-30T23:59:59Z',
+          tokenMin: 100,
+          tokenMax: 2000,
+          cursor: '2026-04-15T00:00:00Z',
+        },
+      });
+      expect(builder.in).toHaveBeenCalledWith('mode', ['plan', 'chat']);
+      expect(builder.in).toHaveBeenCalledWith('outcome', ['done', 'ongoing']);
+      expect(builder.gte).toHaveBeenCalledWith(
+        'started_at',
+        '2026-04-01T00:00:00Z',
+      );
+      expect(builder.lte).toHaveBeenCalledWith(
+        'started_at',
+        '2026-04-30T23:59:59Z',
+      );
+      expect(builder.gte).toHaveBeenCalledWith('total_tokens', 100);
+      expect(builder.lte).toHaveBeenCalledWith('total_tokens', 2000);
+      expect(builder.lt).toHaveBeenCalledWith(
+        'started_at',
+        '2026-04-15T00:00:00Z',
+      );
+    });
+
+    it('resolves matching session ids via FTS first, then intersects with the view', async () => {
+      // First call: council_turns FTS resolution.
+      const turnsBuilder = chain<{ session_id: string | null }[]>({
+        data: [
+          { session_id: 's-1' },
+          { session_id: 's-1' }, // duplicate — Set should collapse
+          { session_id: 's-2' },
+          { session_id: null }, // should be filtered out
+        ],
+        error: null,
+      });
+      // Second call: view read restricted to the resolved ids.
+      const viewBuilder = chain<CouncilSessionStatsRow[]>({
+        data: [statsRow],
+        error: null,
+      });
+      fromSpy
+        .mockReturnValueOnce(turnsBuilder)
+        .mockReturnValueOnce(viewBuilder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: { query: '  launch  ' },
+      });
+      // Turns query: FTS on content_fts using plain-tsquery, user-scoped, capped.
+      expect(fromSpy).toHaveBeenNthCalledWith(1, 'council_turns');
+      expect(turnsBuilder.textSearch).toHaveBeenCalledWith(
+        'content_fts',
+        'launch', // trimmed
+        { type: 'plain' },
+      );
+      expect(turnsBuilder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(turnsBuilder.limit).toHaveBeenCalledWith(2000);
+      // View query: intersected with the de-duped, null-filtered ids.
+      expect(fromSpy).toHaveBeenNthCalledWith(
+        2,
+        'council_sessions_with_stats',
+      );
+      expect(viewBuilder.in).toHaveBeenCalledWith('id', ['s-1', 's-2']);
+    });
+
+    it('returns [] immediately when FTS yields zero matching turns', async () => {
+      const turnsBuilder = chain<{ session_id: string | null }[]>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValueOnce(turnsBuilder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const got = await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: { query: 'nothing-matches' },
+      });
+      expect(got).toEqual([]);
+      // View query was NOT issued (only the first `from()` call fired).
+      expect(fromSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats an all-whitespace query as "no FTS" and hits the view directly', async () => {
+      const builder = chain<CouncilSessionStatsRow[]>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      await repo.searchSessionsForUser({
+        userId: 'u1',
+        opts: { query: '   \t  ' },
+      });
+      expect(fromSpy).toHaveBeenCalledTimes(1);
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions_with_stats');
+      expect(builder.textSearch).not.toHaveBeenCalled();
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<CouncilSessionStatsRow[]>({
+        data: null as unknown as CouncilSessionStatsRow[],
+        error: { message: 'boom' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.searchSessionsForUser({ userId: 'u1' }),
+      ).rejects.toThrow(/searchSessionsForUser: boom/);
+    });
+  });
+
   describe('endSessionsForAuthSession', () => {
     it('closes open rows matching the caller’s (user_id, auth_session_id) and returns them', async () => {
       const builder = chain<CouncilSessionRow[]>({
@@ -382,6 +614,134 @@ describe('SupabaseSessionRepository (F18)', () => {
           authSessionId: 'auth-1',
         }),
       ).rejects.toThrow(/endSessionsForAuthSession: boom/);
+    });
+  });
+
+  describe('deleteSession (F29)', () => {
+    it('scopes by (id, user_id) and returns true when a row was deleted', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [{ id: 'session-1' }],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const deleted = await repo.deleteSession({
+        sessionId: 'session-1',
+        userId: 'u1',
+      });
+
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.delete).toHaveBeenCalledTimes(1);
+      expect(builder.eq).toHaveBeenCalledWith('id', 'session-1');
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      expect(builder.select).toHaveBeenCalledWith('id');
+      expect(deleted).toBe(true);
+    });
+
+    it('returns false when no row matched (stale link, already-purged)', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const deleted = await repo.deleteSession({
+        sessionId: 'session-missing',
+        userId: 'u1',
+      });
+
+      expect(deleted).toBe(false);
+    });
+
+    it('treats a null data payload as no-op (false)', async () => {
+      // PostgREST occasionally returns `data: null` alongside a
+      // non-error response (empty DELETE result); coerce to false
+      // rather than exploding.
+      const builder = chain<Array<{ id: string }> | null>({
+        data: null,
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const deleted = await repo.deleteSession({
+        sessionId: 'session-x',
+        userId: 'u1',
+      });
+      expect(deleted).toBe(false);
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: null as unknown as Array<{ id: string }>,
+        error: { message: 'rls denied' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.deleteSession({ sessionId: 'session-1', userId: 'u1' }),
+      ).rejects.toThrow(/deleteSession: rls denied/);
+    });
+  });
+
+  describe('deleteAllSessionsForUser (F29)', () => {
+    it('scopes by user_id and returns the count of deleted rows', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [
+          { id: 'session-1' },
+          { id: 'session-2' },
+          { id: 'session-3' },
+        ],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+
+      const count = await repo.deleteAllSessionsForUser({ userId: 'u1' });
+
+      expect(fromSpy).toHaveBeenCalledWith('council_sessions');
+      expect(builder.delete).toHaveBeenCalledTimes(1);
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+      // Sanity: the user_id filter is the only scope — otherwise we'd
+      // risk a table-wide wipe if an earlier refactor dropped it.
+      expect(builder.eq).toHaveBeenCalledTimes(1);
+      expect(builder.select).toHaveBeenCalledWith('id');
+      expect(count).toBe(3);
+    });
+
+    it('returns 0 when the user has no history yet', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: [],
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const count = await repo.deleteAllSessionsForUser({ userId: 'u1' });
+      expect(count).toBe(0);
+    });
+
+    it('treats null data as 0', async () => {
+      const builder = chain<Array<{ id: string }> | null>({
+        data: null,
+        error: null,
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      const count = await repo.deleteAllSessionsForUser({ userId: 'u1' });
+      expect(count).toBe(0);
+    });
+
+    it('surfaces DB errors with a prefixed message', async () => {
+      const builder = chain<Array<{ id: string }>>({
+        data: null as unknown as Array<{ id: string }>,
+        error: { message: 'constraint fail' },
+      });
+      fromSpy.mockReturnValue(builder);
+      const repo = new SupabaseSessionRepository({ from: fromSpy } as never);
+      await expect(
+        repo.deleteAllSessionsForUser({ userId: 'u1' }),
+      ).rejects.toThrow(/deleteAllSessionsForUser: constraint fail/);
     });
   });
 });

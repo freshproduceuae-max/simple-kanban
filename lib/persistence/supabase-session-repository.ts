@@ -1,6 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { SessionRepository } from './session-repository';
-import type { CouncilMode, CouncilSessionRow, CouncilTurnRow } from './types';
+import type {
+  SearchSessionsOptions,
+  SessionRepository,
+} from './session-repository';
+import type {
+  CouncilMode,
+  CouncilSessionRow,
+  CouncilSessionStatsRow,
+  CouncilTurnRow,
+} from './types';
 
 /**
  * Supabase-backed SessionRepository (F18). Persists the Council
@@ -242,5 +250,176 @@ export class SupabaseSessionRepository implements SessionRepository {
       .order('created_at', { ascending: true });
     if (error) throw new Error(`SessionRepository.listTurns: ${error.message}`);
     return (data ?? []) as CouncilTurnRow[];
+  }
+
+  async searchSessionsForUser(input: {
+    userId: string;
+    opts?: SearchSessionsOptions;
+  }): Promise<CouncilSessionStatsRow[]> {
+    const opts: SearchSessionsOptions = input.opts ?? {};
+    const limit = Math.max(
+      1,
+      Math.min(opts.limit ?? DEFAULT_SESSIONS_PAGE_SIZE, 100),
+    );
+
+    // When a full-text query is present we first resolve the matching
+    // session ids from `council_turns.content_fts` (GIN-indexed by
+    // migration 015) and then intersect the view read with those ids.
+    // Doing FTS at the session level would require aggregating every
+    // session's text into a view-level tsvector, which defeats the GIN.
+    const trimmedQuery = opts.query?.trim();
+    if (trimmedQuery && trimmedQuery.length > 0) {
+      const { data: turnMatches, error: tErr } = await this.client
+        .from('council_turns')
+        .select('session_id')
+        .eq('user_id', input.userId)
+        .textSearch('content_fts', trimmedQuery, { type: 'plain' })
+        .limit(2000);
+      if (tErr)
+        throw new Error(
+          `SessionRepository.searchSessionsForUser: ${tErr.message}`,
+        );
+      const distinctIds = Array.from(
+        new Set(
+          ((turnMatches ?? []) as Array<{ session_id: string | null }>)
+            .map((r) => r.session_id)
+            .filter((id): id is string => typeof id === 'string'),
+        ),
+      );
+      // No turn matched — the whole page is empty before we even hit
+      // the view. Skip the second round trip.
+      if (distinctIds.length === 0) return [];
+      return this.readSessionStats(
+        input.userId,
+        opts,
+        limit,
+        distinctIds,
+      );
+    }
+
+    return this.readSessionStats(input.userId, opts, limit, null);
+  }
+
+  /**
+   * Single read against `council_sessions_with_stats` with all
+   * non-FTS filters, keyset, and limit applied. Split out so the
+   * FTS-present and FTS-absent branches of `searchSessionsForUser`
+   * share one chain. `restrictToIds = null` means "no id restriction"
+   * — an empty array would short-circuit the caller.
+   */
+  private async readSessionStats(
+    userId: string,
+    opts: SearchSessionsOptions,
+    limit: number,
+    restrictToIds: string[] | null,
+  ): Promise<CouncilSessionStatsRow[]> {
+    let q = this.client
+      .from('council_sessions_with_stats')
+      .select('*')
+      .eq('user_id', userId)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+
+    if (restrictToIds) {
+      // Same 2000 cap as `listSessionsByIds` — keeps URL length sane.
+      q = q.in('id', restrictToIds.slice(0, 2000));
+    }
+    if (opts.modes && opts.modes.length > 0) {
+      q = q.in('mode', opts.modes as string[]);
+    }
+    if (opts.outcomes && opts.outcomes.length > 0) {
+      q = q.in('outcome', opts.outcomes as string[]);
+    }
+    if (opts.dateFrom) q = q.gte('started_at', opts.dateFrom);
+    if (opts.dateTo) q = q.lte('started_at', opts.dateTo);
+    if (typeof opts.tokenMin === 'number') {
+      q = q.gte('total_tokens', opts.tokenMin);
+    }
+    if (typeof opts.tokenMax === 'number') {
+      q = q.lte('total_tokens', opts.tokenMax);
+    }
+    if (opts.cursor) {
+      // Keyset: strictly older than the last row the caller saw.
+      q = q.lt('started_at', opts.cursor);
+    }
+
+    const { data, error } = await q;
+    if (error)
+      throw new Error(
+        `SessionRepository.searchSessionsForUser: ${error.message}`,
+      );
+    return (data ?? []) as CouncilSessionStatsRow[];
+  }
+
+  async deleteSession(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<boolean> {
+    // Scoped by `(id, user_id)` on top of RLS so a mis-scoped call
+    // fails to find a row rather than silently mutating someone
+    // else's data. Cascade FKs (migrations 003, 004, 006, 007) remove
+    // every dependent row in a single statement — see the interface
+    // doc comment for the full chain.
+    //
+    // `.select('id')` makes PostgREST return the row(s) it deleted.
+    // An empty array means the id didn't match (stale link, already-
+    // purged row) — we return `false` so the caller can surface a
+    // "nothing to do" path rather than a confusing "deleted!" toast.
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .delete()
+      .eq('id', input.sessionId)
+      .eq('user_id', input.userId)
+      .select('id');
+    if (error)
+      throw new Error(`SessionRepository.deleteSession: ${error.message}`);
+    return ((data as Array<{ id: string }> | null) ?? []).length > 0;
+  }
+
+  async deleteAllSessionsForUser(input: {
+    userId: string;
+  }): Promise<number> {
+    // `.delete()` in PostgREST requires at least one filter to avoid
+    // wiping a whole table — `.eq('user_id', ...)` is both the safety
+    // filter and the scope. Returns the count of removed session rows
+    // so the caller can surface "deleted N sessions" on the confirm
+    // toast. Dependent rows (turns, summaries, diffs, recalls) go with
+    // them via cascade; proposals keep the row with `session_id` set
+    // to null by design.
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .delete()
+      .eq('user_id', input.userId)
+      .select('id');
+    if (error)
+      throw new Error(
+        `SessionRepository.deleteAllSessionsForUser: ${error.message}`,
+      );
+    return ((data as Array<{ id: string }> | null) ?? []).length;
+  }
+
+  async listSessionsByIds(input: {
+    userId: string;
+    sessionIds: string[];
+  }): Promise<CouncilSessionRow[]> {
+    // Empty-in short-circuit: PostgREST serialises `.in([])` as the
+    // nonsensical filter `id=in.()` and some deployments reject it —
+    // better to skip the round trip entirely, which is what every
+    // caller would want anyway.
+    if (input.sessionIds.length === 0) return [];
+    // Hard upper bound on the IN list so a runaway caller can't
+    // synthesise a URL-length-busting query. The F27 metrics page
+    // already caps metric rows at 2000, and distinct sessions across
+    // a 7d window of a single user stay comfortably below that;
+    // trimming here is belt-and-suspenders.
+    const ids = input.sessionIds.slice(0, 2000);
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .select('*')
+      .eq('user_id', input.userId)
+      .in('id', ids);
+    if (error)
+      throw new Error(`SessionRepository.listSessionsByIds: ${error.message}`);
+    return (data ?? []) as CouncilSessionRow[];
   }
 }
