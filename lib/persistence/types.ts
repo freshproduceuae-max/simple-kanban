@@ -143,3 +143,45 @@ export interface AdminErrorEventRow {
   reason: string | null;
   created_at: string;
 }
+
+/**
+ * F28 — derived per-session classification for the searchable
+ * history. The `council_sessions` table has no `outcome` column;
+ * the `council_sessions_with_stats` view (migration 015) derives
+ * these three values from turn count + `ended_at`.
+ *
+ *   - `empty`   — session was opened but no turns ever landed
+ *   - `ongoing` — at least one turn, `ended_at IS NULL`
+ *   - `done`    — `ended_at IS NOT NULL` (regardless of turn count)
+ */
+export type SessionOutcome = 'empty' | 'ongoing' | 'done';
+
+/**
+ * F28 — shape of `council_sessions_with_stats` (the read-side view).
+ * Mirrors `CouncilSessionRow` for the columns it forwards; adds
+ * per-session aggregates so `/history` can filter on cost and
+ * outcome without an N+1 turn fetch.
+ *
+ * `tokens_in_sum` / `tokens_out_sum` / `turn_count` come back as
+ * Postgres bigints; PostgREST serializes them as JSON strings when
+ * they exceed 2^53-1, but for single-user v0.4 they stay well inside
+ * JS number range. We type them as `number` to match how every other
+ * numeric column in this file is represented; the Supabase driver
+ * coerces the value on read.
+ */
+export interface CouncilSessionStatsRow {
+  id: string;
+  user_id: string;
+  mode: CouncilMode;
+  started_at: string;
+  ended_at: string | null;
+  summary_written_at: string | null;
+  tokens_in_sum: number;
+  tokens_out_sum: number;
+  /** Pre-computed `tokens_in_sum + tokens_out_sum`, exposed by the view for range filters. */
+  total_tokens: number;
+  turn_count: number;
+  outcome: SessionOutcome;
+  /** First non-blank user-turn content, or null for empty sessions. Used by `/history` to derive the row title without a per-row turn fetch. */
+  first_user_content: string | null;
+}

@@ -197,6 +197,54 @@ describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, 
     expect(after.rows.every((r) => r.ended_at !== null)).toBe(true);
   });
 
+  it('creates the council_sessions_with_stats view with security_invoker = true (F28)', async () => {
+    // Same pattern as `council_metrics_daily`: the view reads an
+    // RLS-protected base table, so it must execute with caller
+    // privileges or it leaks cross-user aggregates.
+    const viewExists = await db.query<{ viewname: string }>(
+      `select viewname from pg_views
+        where schemaname = 'public' and viewname = 'council_sessions_with_stats'`,
+    );
+    expect(viewExists.rows).toHaveLength(1);
+
+    const options = await db.query<{ reloptions: string[] | null }>(
+      `select reloptions from pg_class
+        where relname = 'council_sessions_with_stats' and relkind = 'v'`,
+    );
+    const opts = options.rows[0]?.reloptions ?? [];
+    expect(
+      opts.some((o) => o === 'security_invoker=true'),
+      'council_sessions_with_stats must be declared WITH (security_invoker = true)',
+    ).toBe(true);
+  });
+
+  it('adds the council_turns.content_fts generated column + GIN index (F28)', async () => {
+    // Generated column exists and is of type tsvector.
+    const columnRow = await db.query<{
+      column_name: string;
+      data_type: string;
+      is_generated: string;
+    }>(
+      `select column_name, data_type, is_generated
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name   = 'council_turns'
+          and column_name  = 'content_fts'`,
+    );
+    expect(columnRow.rows).toHaveLength(1);
+    expect(columnRow.rows[0].data_type).toBe('tsvector');
+    expect(columnRow.rows[0].is_generated).toBe('ALWAYS');
+
+    // Matching GIN index exists.
+    const idxRow = await db.query<{ indexname: string; indexdef: string }>(
+      `select indexname, indexdef from pg_indexes
+        where schemaname = 'public'
+          and indexname  = 'council_turns_content_fts_idx'`,
+    );
+    expect(idxRow.rows).toHaveLength(1);
+    expect(idxRow.rows[0].indexdef).toMatch(/gin/i);
+  });
+
   it('creates every hot-path index from migration 010', async () => {
     const expectedIndexes = [
       'council_turns_session_created_idx',

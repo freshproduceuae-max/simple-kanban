@@ -24,6 +24,12 @@ describe('persistence repositories (stubs)', () => {
       repo.startSession({ userId: 'u1', mode: 'chat', authSessionId: 'auth-1' }),
     ).rejects.toThrow(/F18/);
   });
+  it('SessionRepository.searchSessionsForUser stub throws with feature-id hint (F28)', async () => {
+    const repo = new SessionRepositoryNotImplemented();
+    await expect(
+      repo.searchSessionsForUser({ userId: 'u1' }),
+    ).rejects.toThrow(/F28/);
+  });
   it('ProposalRepository stub throws with feature-id hint', async () => {
     const repo = new ProposalRepositoryNotImplemented();
     await expect(repo.findById({ id: 'p1', userId: 'u1' })).rejects.toThrow(/F12/);
