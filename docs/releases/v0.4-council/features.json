@@ -432,14 +432,14 @@
       "steps": [
         "Create /admin/metrics route gated by role (single-user in v0.4 = the CD)",
         "Render crude tables reading the metrics table from F21",
-        "Surface 429 count + Supabase error count + error-email failure count"
+        "Surface 429 count + agent-level error count (per-agent grouping and persistent error-email failure counter land with F27)"
       ],
       "passes": false
     },
     {
       "id": "F27",
       "category": "observability",
-      "description": "Per-agent /admin/metrics breakdown (v0.4 final): Researcher vs Consolidator vs Critic token share, latency histograms, failure rates per agent.",
+      "description": "Per-agent /admin/metrics breakdown (v0.4 final): Researcher vs Consolidator vs Critic token share, latency histograms, failure rates per agent, persistent error-email failure counter.",
       "order": 27,
       "priority": "final",
       "dependsOn": ["F26"],
@@ -447,6 +447,7 @@
       "steps": [
         "Extend /admin/metrics with per-agent grouping",
         "Add simple histogram rendering (no heavy chart library)",
+        "Persist error-email send failures (table + repository method) and surface the count alongside 429 / error totals",
         "Compute pass/fail against starting SLOs from PRD §13.3 and flag misses"
       ],
       "passes": false
