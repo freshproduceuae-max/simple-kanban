@@ -15,6 +15,7 @@ import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { extractPlanFrame } from '@/lib/council/server/plan-extract';
 import { buildCriticAudit } from '@/lib/council/server/critic-audit';
+import { buildMemoryRecallAudit } from '@/lib/council/server/memory-recall-audit';
 import {
   getProposalRepository,
   getSessionRepository,
@@ -119,15 +120,22 @@ export async function POST(request: Request) {
   // merges a `criticAudit` fragment so the shelf composer can render
   // the "How I got here" reveal next to proposal cards — Plan force-
   // critiques every draft (forceCritic=true above), so this is the
-  // mode where the reveal is most likely to appear.
+  // mode where the reveal is most likely to appear. F24 adds a
+  // `memoryRecall` fragment whenever the Researcher surfaced prior-
+  // session summaries into the system prompt, so the shelf can render
+  // the "I remembered from earlier" reveal alongside the Critic one.
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     const final = await done;
     const criticAudit = buildCriticAudit(final);
+    const memoryRecall = buildMemoryRecallAudit(
+      final.researcher.recalledSummaries,
+    );
     const frame = extractPlanFrame(final.text);
     if (
       frame.tasks.length === 0 &&
       frame.chips.length === 0 &&
-      criticAudit === null
+      criticAudit === null &&
+      memoryRecall === null
     ) {
       return null;
     }
@@ -168,6 +176,7 @@ export async function POST(request: Request) {
     if (proposals.length > 0) payload.proposals = proposals;
     if (frame.chips.length > 0) payload.chips = frame.chips;
     if (criticAudit) payload.criticAudit = criticAudit;
+    if (memoryRecall) payload.memoryRecall = memoryRecall;
     return Object.keys(payload).length > 0 ? payload : null;
   };
 

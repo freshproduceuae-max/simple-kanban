@@ -47,7 +47,20 @@ export type ConsolidatorDeps = {
 
 export type ConsolidatorResult = {
   stream: AsyncIterable<string>;
-  done: Promise<{ text: string; tokensIn: number; tokensOut: number; mode: CouncilMode }>;
+  /**
+   * Resolves after `finalize()` persists the assistant turn. `turnId`
+   * is the `council_turns.id` of the just-written row (F24 needs it
+   * to FK `memory_recalls.turn_id`). Null when the write failed or
+   * the path never ran the Consolidator — callers must gate any
+   * recall-row insert on `turnId != null`.
+   */
+  done: Promise<{
+    text: string;
+    tokensIn: number;
+    tokensOut: number;
+    mode: CouncilMode;
+    turnId: string | null;
+  }>;
 };
 
 export const CONSOLIDATOR_FAIL_SENTENCE =
@@ -108,6 +121,13 @@ function buildSystemPrompt(mode: CouncilMode, researcherFindings?: string): stri
     .join('\n\n');
 }
 
+/**
+ * Persist a user or consolidator turn and return the persisted row's
+ * id, or null if the write failed. F24 relies on the returned id to
+ * FK `memory_recalls.turn_id`; the null return keeps the caller's
+ * recall-write path safely inert on a persistence flake — we'd rather
+ * lose a recall row than drop the reply.
+ */
 async function persistTurn(
   deps: ConsolidatorDeps,
   args: {
@@ -118,9 +138,9 @@ async function persistTurn(
     tokensIn?: number;
     tokensOut?: number;
   }
-): Promise<void> {
+): Promise<string | null> {
   try {
-    await deps.sessionRepo.appendTurn({
+    const row = await deps.sessionRepo.appendTurn({
       session_id: args.sessionId,
       user_id: args.userId,
       agent: args.agent === 'user' ? 'user' : 'consolidator',
@@ -130,8 +150,10 @@ async function persistTurn(
       tokens_in: args.tokensIn ?? null,
       tokens_out: args.tokensOut ?? null,
     });
+    return row?.id ?? null;
   } catch (err) {
     (deps.log ?? console.error)('consolidator: turn write failed', err);
+    return null;
   }
 }
 
@@ -268,12 +290,14 @@ export async function consolidate(
     tokensIn: number;
     tokensOut: number;
     mode: CouncilMode;
+    turnId: string | null;
   }) => void;
   const done = new Promise<{
     text: string;
     tokensIn: number;
     tokensOut: number;
     mode: CouncilMode;
+    turnId: string | null;
   }>((r) => {
     resolveDone = r;
   });
@@ -288,7 +312,7 @@ export async function consolidate(
     if (finalized) return;
     finalized = true;
     const text = chunks.join('');
-    await persistTurn(deps, {
+    const turnId = await persistTurn(deps, {
       sessionId: input.sessionId,
       userId: input.userId,
       agent: 'consolidator',
@@ -312,7 +336,7 @@ export async function consolidate(
         { metricsRepo: deps.metricsRepo, log },
       );
     }
-    resolveDone({ text, tokensIn, tokensOut, mode });
+    resolveDone({ text, tokensIn, tokensOut, mode, turnId });
   };
 
   // Wrap the passthrough so that persistence + done-resolution happen
@@ -346,7 +370,7 @@ function failStream(
     },
   };
   const done = (async () => {
-    await persistTurn(deps, {
+    const turnId = await persistTurn(deps, {
       sessionId: input.sessionId,
       userId: input.userId,
       agent: 'consolidator',
@@ -370,7 +394,13 @@ function failStream(
         { metricsRepo: deps.metricsRepo, log },
       );
     }
-    return { text: CONSOLIDATOR_FAIL_SENTENCE, tokensIn: 0, tokensOut: 0, mode };
+    return {
+      text: CONSOLIDATOR_FAIL_SENTENCE,
+      tokensIn: 0,
+      tokensOut: 0,
+      mode,
+      turnId,
+    };
   })();
   return { stream, done };
 }

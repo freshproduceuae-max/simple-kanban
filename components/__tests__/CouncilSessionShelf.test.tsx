@@ -480,6 +480,162 @@ describe('CouncilSessionShelf', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('F24: renders the "I remembered" reveal when the trailer carries memoryRecall', async () => {
+    const user = userEvent.setup();
+    const trailer = {
+      memoryRecall: {
+        recalls: [
+          {
+            id: 'sum-1',
+            sessionId: 'sess-1',
+            createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+            snippet: 'Yesterday we agreed to keep the SLA work small.',
+          },
+        ],
+      },
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse(['drafted.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'remind me',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/drafted/)).toBeInTheDocument(),
+    );
+    const trigger = screen.getByRole('button', {
+      name: /i remembered something from earlier/i,
+    });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // Panel hidden until a click.
+    expect(
+      screen.queryByText(/keep the sla work small/i),
+    ).not.toBeInTheDocument();
+    await user.click(trigger);
+    expect(
+      screen.getByText(/keep the sla work small/i),
+    ).toBeInTheDocument();
+  });
+
+  it('F24: renders BOTH reveals when the trailer carries memoryRecall AND criticAudit', async () => {
+    // Order contract: memory (what the Council brought in) sits above
+    // "how I got here" (what the Council drafted + what the Critic
+    // flagged) — top-to-bottom pipeline order.
+    const user = userEvent.setup();
+    const trailer = {
+      proposals: [{ id: 'p-1', title: 'Ship v0.4' }],
+      memoryRecall: {
+        recalls: [
+          {
+            id: 'sum-a',
+            sessionId: 'sess-a',
+            createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+            snippet: 'Keep plans to three tasks, you said.',
+          },
+        ],
+      },
+      criticAudit: {
+        risk: 'low',
+        review: 'Looks honest.',
+        preDraft: 'Ship v0.4.',
+      },
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse(['drafting.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.click(screen.getByRole('radio', { name: /plan/i }));
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'plan something',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText('Ship v0.4')).toBeInTheDocument(),
+    );
+    // Both triggers render.
+    expect(
+      screen.getByRole('button', {
+        name: /i remembered something from earlier/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /how i got here/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('F24: tolerates a malformed memoryRecall trailer by omitting the reveal', async () => {
+    // Server contract drift: recalls is a string, or the fields are
+    // wrong types. The defensive narrower drops the fragment rather
+    // than throwing on render.
+    const user = userEvent.setup();
+    const trailer = {
+      memoryRecall: {
+        recalls: 'not an array',
+      },
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse(['ok.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText(/ok/)).toBeInTheDocument());
+    expect(
+      screen.queryByRole('button', { name: /i remembered/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('F24: drops malformed per-entry items individually and keeps the good ones', async () => {
+    // One entry has a non-string id; the good entry should still render.
+    const user = userEvent.setup();
+    const trailer = {
+      memoryRecall: {
+        recalls: [
+          {
+            id: 42, // bad
+            sessionId: 'sess-bad',
+            createdAt: '2026-04-20T00:00:00Z',
+            snippet: 'bad entry',
+          },
+          {
+            id: 'sum-ok',
+            sessionId: 'sess-ok',
+            createdAt: '2026-04-21T00:00:00Z',
+            snippet: 'the good entry',
+          },
+        ],
+      },
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse(['ok.', '\n' + JSON.stringify(trailer)]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText(/ok/)).toBeInTheDocument());
+    // The trigger shows singular because only one entry survived.
+    const trigger = screen.getByRole('button', {
+      name: /i remembered something from earlier \(1\)/i,
+    });
+    await user.click(trigger);
+    expect(screen.getByText('the good entry')).toBeInTheDocument();
+    expect(screen.queryByText('bad entry')).not.toBeInTheDocument();
+  });
+
   it('tolerates a malformed criticAudit trailer by omitting the reveal', async () => {
     // Defensive: a future server contract with a different audit
     // shape must not crash the turn. The rest of the reply should

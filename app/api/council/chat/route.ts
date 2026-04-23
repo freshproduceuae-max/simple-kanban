@@ -10,6 +10,7 @@ import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { buildCriticAudit } from '@/lib/council/server/critic-audit';
+import { buildMemoryRecallAudit } from '@/lib/council/server/memory-recall-audit';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
 import {
   getSessionRepository,
@@ -106,17 +107,24 @@ export async function POST(request: Request) {
     },
   );
 
-  // F23 — the Chat route has no structured trailer of its own, but it
-  // still carries the Critic audit when the Critic fired on the draft.
-  // Emitting an empty trailer on below-threshold turns would be a net
-  // loss (adds a stray newline to the body for zero benefit), so the
-  // helper returns `null` and the wrapper skips the line entirely when
-  // the Critic didn't run.
+  // F23 + F24 — the Chat route has no structured trailer of its own,
+  // but it still carries the Critic audit when the Critic fired on the
+  // draft (F23) and a memory-recall artifact when the Researcher
+  // surfaced prior-session summaries (F24). Emitting an empty trailer
+  // on a turn with neither would be a net loss (adds a stray newline
+  // to the body for zero benefit), so the helper returns `null` and
+  // the wrapper skips the line entirely when nothing applies.
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     const final = await done;
     const criticAudit = buildCriticAudit(final);
-    if (!criticAudit) return null;
-    return { criticAudit };
+    const memoryRecall = buildMemoryRecallAudit(
+      final.researcher.recalledSummaries,
+    );
+    if (!criticAudit && !memoryRecall) return null;
+    const payload: Record<string, unknown> = {};
+    if (criticAudit) payload.criticAudit = criticAudit;
+    if (memoryRecall) payload.memoryRecall = memoryRecall;
+    return payload;
   };
 
   const res = streamCouncilReply({

@@ -68,6 +68,12 @@ function fakeTurn(opts?: {
     risk?: 'low' | 'medium' | 'high';
     review?: string | null;
   };
+  recalledSummaries?: Array<{
+    id: string;
+    content: string;
+    sessionId: string;
+    createdAt: string;
+  }>;
 }) {
   const streamText = opts?.streamText ?? 'here is the plan…';
   const finalText = opts?.finalText ?? streamText;
@@ -88,7 +94,14 @@ function fakeTurn(opts?: {
       text: finalText,
       preCriticText: finalText,
       mode: 'plan',
-      researcher: { ok: true, text: '', toolCalls: [], tokensIn: 0, tokensOut: 0 },
+      researcher: {
+        ok: true,
+        text: '',
+        toolCalls: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        recalledSummaries: opts?.recalledSummaries ?? [],
+      },
       critic,
     }),
   };
@@ -343,5 +356,93 @@ describe('POST /api/council/plan', () => {
     expect(trailer.criticAudit.review).toBe('Nothing to flag.');
     expect(trailer.proposals).toBeUndefined();
     expect(trailer.chips).toBeUndefined();
+  });
+
+  // -------- F24: memoryRecall trailer fragment --------
+
+  it('F24: emits a memoryRecall fragment alongside proposals when Researcher surfaced summaries', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        recalledSummaries: [
+          {
+            id: 'sum-plan',
+            content: 'You told me last week to keep Q3 tasks small.',
+            sessionId: 'sess-plan',
+            createdAt: '2026-04-17T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.proposals).toHaveLength(1);
+    expect(trailer.memoryRecall.recalls).toHaveLength(1);
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-plan');
+  });
+
+  it('F24: emits a memoryRecall-only trailer on a conversational Plan reply (no tasks/chips/critic)', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'tell me the scope first.',
+        recalledSummaries: [
+          {
+            id: 'sum-only',
+            content: 'Prior scope was web-only.',
+            sessionId: 'sess-ext',
+            createdAt: '2026-04-16T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'what should I build?' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.memoryRecall.recalls).toHaveLength(1);
+    expect(trailer.proposals).toBeUndefined();
+    expect(trailer.criticAudit).toBeUndefined();
+  });
+
+  it('F24: omits memoryRecall and the trailer entirely when Researcher returned empty AND the reply has no proposals/chips/critic', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'tell me the scope first.',
+        recalledSummaries: [],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'what should I build?' }));
+    const body = await res.text();
+    // Body is exactly the streamed text — no trailer line.
+    expect(body).toBe('here is the plan…');
+  });
+
+  it('F24: merges memoryRecall + criticAudit + proposals + chips in one trailer', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText:
+          'drafting now — \n```json-plan\n{"tasks":["t1"],"chips":["deadline?"]}\n```',
+        critic: {
+          ran: true,
+          risk: 'low',
+          review: 'Looks honest.',
+        },
+        recalledSummaries: [
+          {
+            id: 'sum-all',
+            content: 'You said to keep plans to three tasks.',
+            sessionId: 'sess-all',
+            createdAt: '2026-04-18T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.proposals).toHaveLength(1);
+    expect(trailer.chips).toEqual(['deadline?']);
+    expect(trailer.criticAudit.review).toBe('Looks honest.');
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-all');
   });
 });

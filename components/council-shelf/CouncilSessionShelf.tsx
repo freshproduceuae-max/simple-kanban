@@ -13,10 +13,15 @@ import { ProposalCard } from '@/components/proposal-card';
 import { ThinkingStream } from '@/components/thinking-stream';
 import { ChipInput } from './ChipInput';
 import { HowIGotHereReveal } from './HowIGotHereReveal';
+import { MemoryRecallReveal } from './MemoryRecallReveal';
 import { ShelfInput } from './ShelfInput';
 import { TurnList, type ShelfTurn } from './TurnList';
 import { openCouncilStream } from './stream-helpers';
 import type { CriticAudit } from '@/lib/council/server/critic-audit';
+import type {
+  MemoryRecallAudit,
+  MemoryRecallItem,
+} from '@/lib/council/server/memory-recall-audit';
 
 /**
  * F22a — CouncilSessionShelf composite.
@@ -65,11 +70,13 @@ type Mode = 'chat' | 'plan' | 'advise';
 
 type ProposalFrame = { id: string; title: string };
 type CriticAuditTrailer = { criticAudit?: CriticAudit };
-type PlanTrailer = CriticAuditTrailer & {
+type MemoryRecallTrailer = { memoryRecall?: MemoryRecallAudit };
+type RevealTrailer = CriticAuditTrailer & MemoryRecallTrailer;
+type PlanTrailer = RevealTrailer & {
   proposals?: ProposalFrame[];
   chips?: string[];
 };
-type AdviseTrailer = CriticAuditTrailer & { handoff?: 'plan' };
+type AdviseTrailer = RevealTrailer & { handoff?: 'plan' };
 
 /**
  * Narrow an unknown trailer fragment to a `CriticAudit` — a defensive
@@ -96,6 +103,43 @@ function extractCriticAudit(trailer: unknown): CriticAudit | null {
   const audit: CriticAudit = { risk, review, preDraft };
   if (preDraftTruncated === true) audit.preDraftTruncated = true;
   return audit;
+}
+
+/**
+ * Narrow an unknown trailer fragment to a `MemoryRecallAudit`. Mirrors
+ * `extractCriticAudit` — returns null when the shape is missing or any
+ * required field is malformed. A malformed entry inside `recalls` is
+ * dropped individually so a partially-bad server response still shows
+ * the good entries.
+ */
+function extractMemoryRecall(trailer: unknown): MemoryRecallAudit | null {
+  if (!trailer || typeof trailer !== 'object') return null;
+  const raw = (trailer as MemoryRecallTrailer).memoryRecall;
+  if (!raw || typeof raw !== 'object') return null;
+  const rawRecalls = (raw as { recalls?: unknown }).recalls;
+  if (!Array.isArray(rawRecalls)) return null;
+  const recalls: MemoryRecallItem[] = [];
+  for (const entry of rawRecalls) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = (entry as { id?: unknown }).id;
+    const sessionId = (entry as { sessionId?: unknown }).sessionId;
+    const createdAt = (entry as { createdAt?: unknown }).createdAt;
+    const snippet = (entry as { snippet?: unknown }).snippet;
+    const truncated = (entry as { snippetTruncated?: unknown }).snippetTruncated;
+    if (
+      typeof id !== 'string' ||
+      typeof sessionId !== 'string' ||
+      typeof createdAt !== 'string' ||
+      typeof snippet !== 'string'
+    ) {
+      continue;
+    }
+    const item: MemoryRecallItem = { id, sessionId, createdAt, snippet };
+    if (truncated === true) item.snippetTruncated = true;
+    recalls.push(item);
+  }
+  if (recalls.length === 0) return null;
+  return { recalls };
 }
 
 /**
@@ -369,6 +413,19 @@ export function CouncilSessionShelf({
             </div>,
           );
         }
+      }
+
+      // F24 — "I remembered from earlier" reveal. Every mode's trailer
+      // can carry a `memoryRecall` fragment; render it when the
+      // Researcher surfaced prior-session summaries. F24 sits above F23
+      // in the extras stack because memory feeds the draft and the
+      // draft feeds the Critic — reading top-to-bottom ("what I knew"
+      // → "what I said" → "what I flagged") matches the pipeline.
+      const memoryRecall = extractMemoryRecall(trailer);
+      if (memoryRecall) {
+        extrasFragments.push(
+          <MemoryRecallReveal key="memory-recall" audit={memoryRecall} />,
+        );
       }
 
       // F23 — "How I got here" reveal. Every mode's trailer can carry

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SupabaseCouncilMemoryRepository } from '../supabase-council-memory-repository';
-import type { CouncilMemorySummaryRow } from '../types';
+import type { CouncilMemorySummaryRow, MemoryRecallRow } from '../types';
 
 type Result<T> = { data: T; error: null | { message: string } };
 
@@ -27,6 +27,15 @@ const summaryRow: CouncilMemorySummaryRow = {
   kind: 'session-end',
   content: 'We discussed deploys.',
   created_at: '2026-04-21T00:00:00Z',
+};
+
+const recallRow: MemoryRecallRow = {
+  id: 'r-1',
+  turn_id: 't-1',
+  user_id: 'u1',
+  source_turn_id: null,
+  snippet: 'We discussed deploys.',
+  created_at: '2026-04-22T00:00:00Z',
 };
 
 describe('SupabaseCouncilMemoryRepository (F18 summaries)', () => {
@@ -84,17 +93,77 @@ describe('SupabaseCouncilMemoryRepository (F18 summaries)', () => {
     expect(builder2.limit).toHaveBeenCalledWith(1);
   });
 
-  it('writeRecall / listRecallsForTurn still throw with an F24 hint', async () => {
+  // F24 — recall writes and reads. These rows bind a Consolidator
+  // turn to the memory snippets the Researcher surfaced into its
+  // system prompt, so the UI reveal ("I remembered …") has
+  // persistent data to replay via F28 history later.
+  it('writeRecall inserts a row with null source_turn_id on the summary path', async () => {
+    const builder = chain<MemoryRecallRow>({ data: recallRow, error: null });
+    fromSpy.mockReturnValue(builder);
+    const repo = new SupabaseCouncilMemoryRepository({ from: fromSpy } as never);
+
+    const got = await repo.writeRecall({
+      turn_id: 't-1',
+      user_id: 'u1',
+      source_turn_id: null,
+      snippet: 'We discussed deploys.',
+    });
+    expect(fromSpy).toHaveBeenCalledWith('memory_recalls');
+    expect(builder.insert).toHaveBeenCalledWith({
+      turn_id: 't-1',
+      user_id: 'u1',
+      source_turn_id: null,
+      snippet: 'We discussed deploys.',
+    });
+    expect(got.id).toBe('r-1');
+    expect(got.source_turn_id).toBeNull();
+  });
+
+  it('writeRecall surfaces the insert error with a prefixed message', async () => {
+    const builder = chain<MemoryRecallRow>({
+      data: null as unknown as MemoryRecallRow,
+      error: { message: 'fk-violation' },
+    });
+    fromSpy.mockReturnValue(builder);
     const repo = new SupabaseCouncilMemoryRepository({ from: fromSpy } as never);
     await expect(
       repo.writeRecall({
-        turn_id: 't',
+        turn_id: 't-1',
         user_id: 'u1',
-        source_turn_id: 's',
+        source_turn_id: null,
         snippet: 'x',
       }),
-    ).rejects.toThrow(/F24/);
-    await expect(repo.listRecallsForTurn('t')).rejects.toThrow(/F24/);
+    ).rejects.toThrow(/CouncilMemoryRepository\.writeRecall: fk-violation/);
+  });
+
+  it('listRecallsForTurn filters by user_id + turn_id and orders oldest-first', async () => {
+    const builder = chain<MemoryRecallRow[]>({ data: [recallRow], error: null });
+    fromSpy.mockReturnValue(builder);
+    const repo = new SupabaseCouncilMemoryRepository({ from: fromSpy } as never);
+
+    const rows = await repo.listRecallsForTurn('u1', 't-1');
+    expect(fromSpy).toHaveBeenCalledWith('memory_recalls');
+    // Defence-in-depth: the query is double-filtered. RLS covers the
+    // cookie-auth path; the explicit user_id.eq covers the service-role
+    // path (future backfills / workers).
+    expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1');
+    expect(builder.eq).toHaveBeenCalledWith('turn_id', 't-1');
+    // Oldest-first so UI can replay in the order memory was surfaced
+    // into the Consolidator's prompt.
+    expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: true });
+    expect(rows).toEqual([recallRow]);
+  });
+
+  it('listRecallsForTurn surfaces the select error with a prefixed message', async () => {
+    const builder = chain<MemoryRecallRow[]>({
+      data: null as unknown as MemoryRecallRow[],
+      error: { message: 'offline' },
+    });
+    fromSpy.mockReturnValue(builder);
+    const repo = new SupabaseCouncilMemoryRepository({ from: fromSpy } as never);
+    await expect(repo.listRecallsForTurn('u1', 't-1')).rejects.toThrow(
+      /CouncilMemoryRepository\.listRecallsForTurn: offline/,
+    );
   });
 
   it('surfaces errors with a prefixed message', async () => {

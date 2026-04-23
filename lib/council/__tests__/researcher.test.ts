@@ -272,4 +272,151 @@ describe('Researcher (F09)', () => {
       expect.any(Error)
     );
   });
+
+  // -------- F24: recalledSummaries on the finding --------
+
+  it('F24: populates recalledSummaries with the full row shape from the memory repo', async () => {
+    // Full `CouncilMemorySummaryRow` shape — the Researcher must map to
+    // the ResearcherRecalledSummary surface (id/content/sessionId/createdAt)
+    // without dropping fields. Dispatch and the trailer both depend on
+    // this mapping.
+    const memoryRepo = {
+      listSummariesForUser: vi.fn().mockResolvedValue([
+        {
+          id: 'sum-a',
+          user_id: 'u1',
+          session_id: 'sess-42',
+          kind: 'session-end',
+          content: 'You closed yesterday feeling behind on the SLA work.',
+          created_at: '2026-04-20T08:30:00Z',
+        },
+        {
+          id: 'sum-b',
+          user_id: 'u1',
+          session_id: 'sess-41',
+          kind: 'session-end',
+          content: 'You asked me to stop commenting on the vendor call.',
+          created_at: '2026-04-19T22:00:00Z',
+        },
+      ]),
+      writeSummary: vi.fn(),
+      writeRecall: vi.fn(),
+      listRecallsForTurn: vi.fn(),
+    } as unknown as CouncilMemoryRepository;
+    const finding = await research(
+      {
+        userId: 'u1',
+        sessionId: 's1',
+        mode: 'chat',
+        query: 'How did yesterday go?',
+        webEnabled: false,
+      },
+      {
+        client: makeClient(textResponse),
+        sessionRepo: makeSessionRepo(),
+        memoryRepo,
+      },
+    );
+    expect(finding.recalledSummaries).toHaveLength(2);
+    expect(finding.recalledSummaries[0]).toEqual({
+      id: 'sum-a',
+      sessionId: 'sess-42',
+      createdAt: '2026-04-20T08:30:00Z',
+      content: 'You closed yesterday feeling behind on the SLA work.',
+    });
+    // Preserves desc order as returned from the repo (newest first).
+    expect(finding.recalledSummaries[1].id).toBe('sum-b');
+  });
+
+  it('F24: returns empty recalledSummaries when the memory repo returns no rows', async () => {
+    const memoryRepo = makeMemoryRepo(); // Empty summaries.
+    const finding = await research(
+      {
+        userId: 'u1',
+        sessionId: 's1',
+        mode: 'chat',
+        query: 'q',
+        webEnabled: false,
+      },
+      { client: makeClient(textResponse), sessionRepo: makeSessionRepo(), memoryRepo },
+    );
+    expect(finding.ok).toBe(true);
+    expect(finding.recalledSummaries).toEqual([]);
+  });
+
+  it('F24: returns empty recalledSummaries when the memory read throws (degraded path)', async () => {
+    // Guarantees the recall artifact is NEVER populated when memory
+    // was unavailable — otherwise the shelf would render a stale reveal
+    // on a degraded turn.
+    const memoryRepo = {
+      listSummariesForUser: vi.fn().mockRejectedValue(new Error('memory down')),
+      writeSummary: vi.fn(),
+      writeRecall: vi.fn(),
+      listRecallsForTurn: vi.fn(),
+    } as unknown as CouncilMemoryRepository;
+    const finding = await research(
+      {
+        userId: 'u1',
+        sessionId: 's1',
+        mode: 'chat',
+        query: 'q',
+        webEnabled: false,
+      },
+      {
+        client: makeClient(textResponse),
+        sessionRepo: makeSessionRepo(),
+        memoryRepo,
+        log: vi.fn(),
+      },
+    );
+    expect(finding.ok).toBe(true);
+    expect(finding.recalledSummaries).toEqual([]);
+  });
+
+  it('F24: rate-limit fast-return path surfaces an empty recalledSummaries array', async () => {
+    // The rate-limit short-circuit runs BEFORE the memory read, so no
+    // summaries are pulled. The trailer must not claim memory fired on
+    // a cap-hit turn.
+    const client = makeClient(textResponse);
+    const deps = {
+      client,
+      sessionRepo: makeSessionRepo(),
+      memoryRepo: makeMemoryRepo([{ content: 'would be included on a normal turn' }]),
+    };
+    for (let i = 0; i < 10; i++) {
+      await research(
+        { userId: 'u', sessionId: 'CAP', mode: 'plan', query: 'q', webEnabled: true },
+        deps,
+      );
+    }
+    const capped = await research(
+      { userId: 'u', sessionId: 'CAP', mode: 'plan', query: 'q', webEnabled: true },
+      deps,
+    );
+    expect(capped.text).toMatch(/web-research limit/);
+    expect(capped.recalledSummaries).toEqual([]);
+  });
+
+  it('F24: SDK failure path surfaces an empty recalledSummaries array on the fail-visible finding', async () => {
+    const client: AnthropicLike = {
+      messages: { create: vi.fn().mockRejectedValue(new Error('boom')) },
+    } as unknown as AnthropicLike;
+    const finding = await research(
+      {
+        userId: 'u1',
+        sessionId: 's1',
+        mode: 'chat',
+        query: 'q',
+        webEnabled: false,
+      },
+      {
+        client,
+        sessionRepo: makeSessionRepo(),
+        memoryRepo: makeMemoryRepo([{ content: 'x' }]),
+        log: vi.fn(),
+      },
+    );
+    expect(finding.ok).toBe(false);
+    expect(finding.recalledSummaries).toEqual([]);
+  });
 });
