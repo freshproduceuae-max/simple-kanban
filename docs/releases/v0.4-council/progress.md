@@ -7,7 +7,7 @@ Canonical progress record for the v0.4 Council release. One row per feature in `
 **Milestone cuts:**
 - `v0.4.0-alpha` — Tier A (F01–F22) at `b303836` → preserved at `v0.4.0-alpha` tag, `release/v0.4-alpha` branch, `simple-kanban-v0-4-alpha.vercel.app`. CD-only. Respun as `v0.4.0-alpha.1` at `2406f2a` after the F22a composer gap-close.
 - `v0.4.0-beta` — Tier A+B (F01–F26) at `b9ea623` → preserved at `v0.4.0-beta` tag, `release/v0.4-beta` branch. Vercel alias deferred (tracked in release report §7). Invited outside users.
-- `v0.4.0` — Tier A+B+C (F01–F32) at `cd72275` → preserved at `v0.4.0` tag, `release/v0.4` branch, `main` (fast-forwarded), Vercel Production, and `simple-kanban-v0-4.vercel.app`. Public-ready (single-user).
+- `v0.4.0` — Tier A+B+C (F01–F32) at `cd72275` → preserved at `v0.4.0` tag, `release/v0.4` branch at `cd72275`, reachable from `main` as an ancestor via merge commit `d15f0ec` (PR #49), Vercel Production deployment `dpl_AB5gfgHTEEBecA8i5toTyjPyUEh1`, and `simple-kanban-v0-4.vercel.app` pinned to that deployment id. Public-ready (single-user).
 
 ---
 
@@ -98,10 +98,10 @@ Newest on top. One line per working beat.
 
 ### 2026-04-24 — **v0.4.0 machine-side close-out** (main merged, Vercel production, versioned alias)
 
-- Merged `release/v0.4-alpha` → `main` via PR — 10 commits F23 (#38) through F32 (#47). Fast-forward; no conflicts; `main` now at `cd72275`.
-- `main` push triggered Vercel Production build. Promoted commit `cd72275` to Vercel Production target; re-aliased `simple-kanban-v0-4.vercel.app` from the preview build to the new production deployment id so the versioned alias is pinned to a production-target deployment (PRD §3.3 "Vercel production" contract).
-- Annotated tag `v0.4.0` (tag object `8b8dbd0` → commit `cd72275`) now sits on `main`, satisfying PRD §3.3 "tag source: cut from `main` after the release branch merges."
-- Floating aliases `simple-kanban-ebon.vercel.app`, `-git-main-*`, and project default roll forward to `cd72275` automatically with the `main` push — expected behaviour per CLAUDE.md.
+- Merged `release/v0.4-alpha` → `main` via PR #49. The merge could not fast-forward because `main` was one commit behind at `2406f2a` (the `v0.4.0-alpha.1` respin) while the release branch had advanced through Tier B + Tier C + the PR #48 close-out chore. Result: `main` moved to **merge commit** `d15f0ec` with first parent `2406f2a` and second parent `35433f0` (the `release/v0.4-alpha` tip). The `v0.4.0` tag still resolves to `cd72275` and is now reachable from `main` as an ancestor via the second-parent chain (`d15f0ec` → `35433f0` → `cd72275`). `release/v0.4-alpha` itself now sits at `35433f0`, one commit past the `v0.4.0` tag (absorbing the docs-only PR #48 chore).
+- `main` push triggered Vercel Production build. Promoted to Vercel Production target as `dpl_AB5gfgHTEEBecA8i5toTyjPyUEh1` (built from `main` / `d15f0ec`; runtime tree is identical to `cd72275` because the delta between them is docs-only). Re-aliased `simple-kanban-v0-4.vercel.app` from the preview build to this production deployment id so the versioned alias is pinned to a production-target deployment (PRD §3.3 "Vercel production" contract).
+- Annotated tag `v0.4.0` (tag object `8b8dbd0` → commit `cd72275`) reaches `main` as an ancestor commit through the PR #49 merge — satisfying the spirit of PRD §3.3 "tag source: cut from `main` after the release branch merges." Strict-letter reading: the tag was placed on the release branch on 2026-04-23 before the merge, not on `main` after it. The tagged commit's reachability from `main` is what's preserved.
+- Floating aliases `simple-kanban-ebon.vercel.app`, `-git-main-*`, and project default roll forward to `d15f0ec` automatically with the `main` push — expected behaviour per CLAUDE.md.
 - **Machine-side contract per PRD §3.3 / vision §10 is now complete.** CD-side contract (three acceptance proxies: F30 throttle, F31 stopwatch, F32 375px walk) remains open. Release report §10 verdict updated.
 - Drift swept: `docs/releases/README.md` + `docs/releases/v0.4-council/README.md` refreshed from planning-era text to shipping state.
 
