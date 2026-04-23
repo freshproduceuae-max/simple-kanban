@@ -94,6 +94,14 @@ Kept short. Move to PRD §17 if an item changes product shape.
 
 Newest on top. One line per working beat.
 
+### 2026-04-23 — Alpha smoke hotfix: migration 013 widens `tasks.position` to `bigint`
+
+- First task-create on the live alpha surfaced `TaskRepository.create: value "1776902740153" is out of range for type integer`. Root cause: migration 001 declared `position integer` (int32 ceiling ~2.15e9) while `lib/board/actions.ts:54` and `app/api/council/proposals/[id]/approve/route.ts:202` both write `Date.now()` (~1.77e12). Blocks every insert — alpha couldn't get past zero cards.
+- Fix on branch `fix/tasks-position-bigint`: migration `013_tasks_position_bigint.sql` runs `alter column position type bigint` guarded by an `information_schema` check so re-runs against an already-widened DB are no-ops (keeps `supabase db reset` clean). int → bigint is non-destructive; no application code changes.
+- Applied to linked prod Supabase via `npx supabase db push` before commit — same DB serves alpha and main, so the live `v0.4.0-alpha` deployment is unblocked the moment the `ALTER` ran, independent of where this commit merges.
+- CD-picked option (i) — commit lands on `main` only — over option (ii) cherry-pick to `release/v0.4-alpha` + `v0.4.0-alpha.1` tag. Rationale: alpha's code is unchanged (only the schema was wrong), no new binary to ship, and the `v0.4.0-alpha` tag + `release/v0.4-alpha` branch still mark the exact code that went green per the milestone-preservation rule.
+- Bundled `chore(supabase): check in CLI scaffolding` (supabase/config.toml + supabase/.gitignore from the `supabase init` run during the alpha deploy) into the same PR — local dev ports + env() substitutions only, no secrets.
+
 ### 2026-04-22 — F20/F21/F22 merged (#33 `bd85168`) — **alpha milestone GREEN**
 
 - Batch B2 (F20+F21+F22) squash-merged to `main`. All of F01–F22 now pass → `v0.4.0-alpha` milestone gate closes.
