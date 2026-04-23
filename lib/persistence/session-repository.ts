@@ -134,6 +134,36 @@ export interface SessionRepository {
     userId: string;
     opts?: SearchSessionsOptions;
   }): Promise<CouncilSessionStatsRow[]>;
+  /**
+   * F29 — delete a single `council_sessions` row owned by `userId`.
+   * Scoped by `(id, user_id)` on top of RLS so a mis-scoped call still
+   * fails loudly. Cascade FKs (migrations 003, 004, 006, 007) remove
+   * every dependent row in a single statement:
+   *
+   *   council_sessions
+   *     → council_turns       (ON DELETE CASCADE)
+   *         → critic_diffs    (ON DELETE CASCADE)
+   *         → memory_recalls  (ON DELETE CASCADE)
+   *     → council_memory_summaries (ON DELETE CASCADE)
+   *
+   * `council_proposals.session_id` is `ON DELETE SET NULL` by design —
+   * proposals are an audit surface and survive the session they were
+   * attached to. Returns `true` when a row was deleted, `false` when
+   * the id did not resolve (stale link, already-purged row). Never
+   * throws on a no-op.
+   */
+  deleteSession(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<boolean>;
+  /**
+   * F29 — purge every `council_sessions` row for `userId`. Same cascade
+   * chain as `deleteSession` — one statement, every dependent row
+   * goes. Returns the number of session rows removed so the caller can
+   * surface it on the confirmation toast. Scoped by `user_id` on top
+   * of RLS; returns 0 when the user has no history yet.
+   */
+  deleteAllSessionsForUser(input: { userId: string }): Promise<number>;
 }
 
 export class SessionRepositoryNotImplemented implements SessionRepository {
@@ -190,5 +220,14 @@ export class SessionRepositoryNotImplemented implements SessionRepository {
     opts?: SearchSessionsOptions;
   }): Promise<CouncilSessionStatsRow[]> {
     throw new Error('SessionRepository: implementation lands with F28');
+  }
+  async deleteSession(_input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<boolean> {
+    throw new Error('SessionRepository: implementation lands with F29');
+  }
+  async deleteAllSessionsForUser(_input: { userId: string }): Promise<number> {
+    throw new Error('SessionRepository: implementation lands with F29');
   }
 }

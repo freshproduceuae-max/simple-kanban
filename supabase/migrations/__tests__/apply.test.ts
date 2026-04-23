@@ -262,4 +262,92 @@ describe('supabase migrations — apply end-to-end (F02)', { timeout: 60_000 }, 
       expect(actual.has(idx), `expected index ${idx} to exist`).toBe(true);
     }
   });
+
+  it('deleting a council_sessions row cascades through every F29-scope child table', async () => {
+    // F29 depends on the full cascade chain holding: a single DELETE
+    // against council_sessions must remove every per-session artifact.
+    // If a future migration drops ON DELETE CASCADE on any of these
+    // FKs, F29 starts leaving orphan rows and this test fails before
+    // the regression ships.
+    //
+    // We seed one session with one turn, one critic diff attached to
+    // that turn, one memory recall attached to that turn, and one
+    // memory summary attached to the session. Then we delete the
+    // session and assert every child row is gone. `council_proposals`
+    // is intentionally not in this test — its session_id FK is
+    // `ON DELETE SET NULL` by design (audit surface).
+    const userRes = await db.query<{ id: string }>(
+      `insert into auth.users (id, email) values
+         (gen_random_uuid(), 'cascade@example.com')
+         returning id`,
+    );
+    const userId = userRes.rows[0].id;
+
+    const sessionRes = await db.query<{ id: string }>(
+      `insert into public.council_sessions (user_id, mode, auth_session_id)
+         values ($1, 'chat', 'auth-cascade')
+         returning id`,
+      [userId],
+    );
+    const sessionId = sessionRes.rows[0].id;
+
+    const turnRes = await db.query<{ id: string }>(
+      `insert into public.council_turns
+         (session_id, user_id, agent, role, content)
+         values ($1, $2, 'user', 'user', 'cascade seed')
+         returning id`,
+      [sessionId, userId],
+    );
+    const turnId = turnRes.rows[0].id;
+
+    await db.query(
+      `insert into public.critic_diffs
+         (turn_id, user_id, diff, risk_level)
+         values ($1, $2, 'n/a', 'low')`,
+      [turnId, userId],
+    );
+    await db.query(
+      `insert into public.memory_recalls
+         (turn_id, user_id, snippet)
+         values ($1, $2, 'remember this')`,
+      [turnId, userId],
+    );
+    await db.query(
+      `insert into public.council_memory_summaries
+         (user_id, session_id, kind, content)
+         values ($1, $2, 'session-end', 'summary body')`,
+      [userId, sessionId],
+    );
+
+    // Sanity: every child row is in place before the cascade.
+    const before = await db.query<{ n: number }>(
+      `select (
+        (select count(*) from public.council_turns where session_id = $1) +
+        (select count(*) from public.critic_diffs where turn_id = $2) +
+        (select count(*) from public.memory_recalls where turn_id = $2) +
+        (select count(*) from public.council_memory_summaries where session_id = $1)
+       )::int as n`,
+      [sessionId, turnId],
+    );
+    expect(before.rows[0].n).toBe(4);
+
+    await db.query(
+      `delete from public.council_sessions where id = $1`,
+      [sessionId],
+    );
+
+    const after = await db.query<{ n: number }>(
+      `select (
+        (select count(*) from public.council_turns where session_id = $1) +
+        (select count(*) from public.critic_diffs where turn_id = $2) +
+        (select count(*) from public.memory_recalls where turn_id = $2) +
+        (select count(*) from public.council_memory_summaries where session_id = $1)
+       )::int as n`,
+      [sessionId, turnId],
+    );
+    expect(
+      after.rows[0].n,
+      'F29 cascade broken — a per-session child table did not remove its rows',
+    ).toBe(0);
+  });
 });

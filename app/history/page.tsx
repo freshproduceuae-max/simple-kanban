@@ -8,6 +8,7 @@ import {
   type SessionHistoryRow,
 } from '@/lib/council/history/derive';
 import type { CouncilMode, SessionOutcome } from '@/lib/persistence/types';
+import { deleteSessionAction } from './actions';
 
 /**
  * F28 — searchable + filterable Session history.
@@ -51,6 +52,23 @@ type HistorySearchParams = {
   to?: string;
   tokenMin?: string;
   tokenMax?: string;
+  /** F29 — set to `1` after a successful per-session delete. */
+  deleted?: string;
+  /**
+   * F29 — set to the failure code by `deleteSessionAction` when the
+   * per-row delete can't complete. Recognised values:
+   *   `invalid`  — session id missing or not a UUID
+   *   `missing`  — id was well-formed but matched no owned row
+   *   `failed`   — repository threw
+   */
+  deleteError?: string;
+};
+
+const DELETE_ERROR_COPY: Record<string, string> = {
+  invalid: 'That delete link looked off, so nothing was removed.',
+  missing:
+    'That session was already gone — maybe from another tab. Nothing left to delete.',
+  failed: 'Something went wrong deleting the session. Please try again.',
 };
 
 type HistoryPageProps = {
@@ -96,6 +114,21 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
     ? buildHref({ ...parsed, cursor: nextCursor })
     : null;
 
+  // F29 — post-delete banner. Only shown on the render right after
+  // the action redirects; the flag falls off on any subsequent
+  // navigation (including the "Older sessions" link) because the
+  // keyset `buildHref` doesn't copy these one-shot params forward.
+  const deleteNotice: { kind: 'success' | 'error'; message: string } | null =
+    typeof searchParams?.deleteError === 'string' &&
+    DELETE_ERROR_COPY[searchParams.deleteError]
+      ? {
+          kind: 'error',
+          message: DELETE_ERROR_COPY[searchParams.deleteError],
+        }
+      : searchParams?.deleted === '1'
+        ? { kind: 'success', message: 'Session deleted.' }
+        : null;
+
   return (
     <main className="mx-auto max-w-4xl p-8">
       <h1 className="text-2xl">Session history</h1>
@@ -103,6 +136,20 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         Full-text search across every turn. Filter by mode, date,
         token cost, or outcome.
       </p>
+
+      {deleteNotice ? (
+        <p
+          className={`mt-4 rounded border px-3 py-2 text-sm ${
+            deleteNotice.kind === 'success'
+              ? 'border-[color:var(--color-ink-300)] text-[color:var(--color-ink-700)]'
+              : 'border-red-300 text-red-700'
+          }`}
+          data-history-delete-notice={deleteNotice.kind}
+          role="status"
+        >
+          {deleteNotice.message}
+        </p>
+      ) : null}
 
       <HistoryFilters parsed={parsed} />
 
@@ -139,6 +186,9 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                 <th className="py-2 pr-4 font-normal">Duration</th>
                 <th className="py-2 pr-4 font-normal">Outcome</th>
                 <th className="py-2 pr-4 font-normal text-right">Tokens</th>
+                {/* F29 — per-row delete. Empty heading on purpose;
+                    a label would compete with the data columns. */}
+                <th className="py-2 pr-2 font-normal"></th>
               </tr>
             </thead>
             <tbody>
@@ -159,6 +209,28 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                   <td className="py-2 pr-4 capitalize">{r.outcome}</td>
                   <td className="py-2 pr-4 text-right tabular-nums">
                     {r.tokenCost.toLocaleString()}
+                  </td>
+                  <td className="py-2 pr-2 text-right whitespace-nowrap">
+                    {/* Inline Server Action form. No client island
+                        is needed — the browser handles submit and
+                        Next re-renders /history on the redirect. */}
+                    <form action={deleteSessionAction}>
+                      <input
+                        type="hidden"
+                        name="sessionId"
+                        value={r.id}
+                      />
+                      <button
+                        type="submit"
+                        className="text-xs text-[color:var(--color-ink-500)] underline hover:text-red-700"
+                        data-history-row-delete={r.id}
+                        aria-label={`Delete session from ${formatTimestamp(
+                          r.startedAt,
+                        )}`}
+                      >
+                        Delete
+                      </button>
+                    </form>
                   </td>
                 </tr>
               ))}
