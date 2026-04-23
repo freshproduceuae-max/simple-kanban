@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { markOnce } from '@/lib/observability/client-marks';
 
 /**
  * F13 — Proposal card + tap-to-approve flow.
@@ -68,6 +69,11 @@ export function ProposalCard({
 
   const doApprove = async () => {
     if (state.kind !== 'pending') return;
+    // F31 — fire the terminal beacon in the first-run path. The gap
+    // between `council:first-user-submit` and this mark is "time the
+    // Council needed to produce a tappable, trusted proposal" — the
+    // core 60-second onboarding KPI per vision §6.
+    markOnce('council:first-proposal-tap');
     setState({ kind: 'approving' });
     const fetcher = approveFetch ?? fetch;
     try {
