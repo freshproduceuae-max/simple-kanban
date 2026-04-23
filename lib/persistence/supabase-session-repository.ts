@@ -243,4 +243,29 @@ export class SupabaseSessionRepository implements SessionRepository {
     if (error) throw new Error(`SessionRepository.listTurns: ${error.message}`);
     return (data ?? []) as CouncilTurnRow[];
   }
+
+  async listSessionsByIds(input: {
+    userId: string;
+    sessionIds: string[];
+  }): Promise<CouncilSessionRow[]> {
+    // Empty-in short-circuit: PostgREST serialises `.in([])` as the
+    // nonsensical filter `id=in.()` and some deployments reject it —
+    // better to skip the round trip entirely, which is what every
+    // caller would want anyway.
+    if (input.sessionIds.length === 0) return [];
+    // Hard upper bound on the IN list so a runaway caller can't
+    // synthesise a URL-length-busting query. The F27 metrics page
+    // already caps metric rows at 2000, and distinct sessions across
+    // a 7d window of a single user stay comfortably below that;
+    // trimming here is belt-and-suspenders.
+    const ids = input.sessionIds.slice(0, 2000);
+    const { data, error } = await this.client
+      .from('council_sessions')
+      .select('*')
+      .eq('user_id', input.userId)
+      .in('id', ids);
+    if (error)
+      throw new Error(`SessionRepository.listSessionsByIds: ${error.message}`);
+    return (data ?? []) as CouncilSessionRow[];
+  }
 }

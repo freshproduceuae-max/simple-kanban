@@ -124,3 +124,22 @@ export interface CouncilMetricRow {
   tokens_out: number;
   outcome: 'ok' | 'error' | 'rate_limited';
 }
+
+/**
+ * F27 — persistent counter for secondary-path failures. Today only
+ * `email_send_failed` is written (see `lib/council/errors/email.ts`);
+ * the `kind` column is CHECK-gated in migration 014 so new kinds
+ * require a schema change rather than a free-typed string.
+ */
+export type AdminErrorEventKind = 'email_send_failed';
+
+export interface AdminErrorEventRow {
+  id: string;
+  user_id: string;
+  kind: AdminErrorEventKind;
+  /** Null when the failure is not tied to a specific Council agent. */
+  agent: CouncilAgent | null;
+  /** Short classifier the caller already computes (e.g. `send-failed`). */
+  reason: string | null;
+  created_at: string;
+}

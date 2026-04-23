@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation';
 import { getAuthedAdmin } from '@/lib/auth/admin';
-import { getMetricsRepository } from '@/lib/persistence/server';
+import {
+  getAdminErrorEventsRepository,
+  getMetricsRepository,
+  getSessionRepository,
+} from '@/lib/persistence/server';
+import type { CouncilMode } from '@/lib/persistence/types';
 import {
   parseWindowHours,
   summarize,
@@ -8,19 +13,23 @@ import {
 import { AdminMetricsView } from './AdminMetricsView';
 
 /**
- * F26 — `/admin/metrics` baseline dashboard.
+ * `/admin/metrics` — CD-only dashboard.
  *
  * Server Component. Gates the page on `ADMIN_EMAIL` (single-user v0.4):
  *   - not-authenticated → `/sign-in`
  *   - authenticated but not admin → `/` (no hint that the surface
  *     exists, matches conventional admin-posture)
  *
- * Reads rows from `council_metrics` for the admin's own `user_id` —
- * v0.4 is single-user, so admin rows = all rows. `listForUser` caps
- * at 2000 rows; at v0.4-beta volume that covers ≥ 7d comfortably.
+ * F26 baseline reads `council_metrics`; F27 layers in:
+ *   - `council_sessions` mode lookup for SLO evaluation per PRD §13.3
+ *     (SLOs are indexed by surface/mode, not by agent, so we need to
+ *     join metric rows → sessions → mode to split Consolidator
+ *     latencies correctly)
+ *   - `admin_error_events` count for the error-email failure counter
  *
- * Aggregation is a pure transform in `metrics-view-model.ts` so the
- * page stays thin.
+ * All repository reads are parallelised — they share `admin.userId`
+ * but don't depend on each other's results, so a single `Promise.all`
+ * is the obvious shape.
  */
 
 export const dynamic = 'force-dynamic';
@@ -50,14 +59,52 @@ export default async function AdminMetricsPage({
     Date.now() - windowHours * 60 * 60 * 1000,
   ).toISOString();
 
-  const repo = getMetricsRepository();
-  const rows = await repo.listForUser({
-    userId: admin.userId,
-    sinceIso,
-    limit: 2000,
-  });
+  const metricsRepo = getMetricsRepository();
+  const errorEventsRepo = getAdminErrorEventsRepository();
 
-  const summary = summarize(rows, { windowHours, windowStartIso: sinceIso });
+  // First trip: the two independent reads that don't depend on the
+  // metric rows themselves.
+  const [rows, errorEmailFailures] = await Promise.all([
+    metricsRepo.listForUser({
+      userId: admin.userId,
+      sinceIso,
+      limit: 2000,
+    }),
+    errorEventsRepo.countSince({
+      userId: admin.userId,
+      sinceIso,
+      kind: 'email_send_failed',
+    }),
+  ]);
+
+  // Second trip: session mode lookup. We collect the distinct
+  // session_ids that actually appear in the window rather than
+  // fetching every session in the window — the metric row set is
+  // already bounded to 2000, so the id list is bounded too, and
+  // sessions with no metrics don't contribute to SLO evaluation.
+  const sessionIds = Array.from(
+    new Set(
+      rows
+        .map((r) => r.session_id)
+        .filter((id): id is string => typeof id === 'string'),
+    ),
+  );
+  let sessionModeById: ReadonlyMap<string, CouncilMode> = new Map();
+  if (sessionIds.length > 0) {
+    const sessionsRepo = getSessionRepository();
+    const sessions = await sessionsRepo.listSessionsByIds({
+      userId: admin.userId,
+      sessionIds,
+    });
+    sessionModeById = new Map(sessions.map((s) => [s.id, s.mode]));
+  }
+
+  const summary = summarize(rows, {
+    windowHours,
+    windowStartIso: sinceIso,
+    sessionModeById,
+    errorEmailFailures,
+  });
 
   return <AdminMetricsView summary={summary} adminEmail={admin.email} />;
 }

@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import type { CouncilMetricRow } from '@/lib/persistence/types';
+import type { CouncilMetricRow, CouncilMode } from '@/lib/persistence/types';
 import {
   AGENTS,
+  FIRST_TOKEN_HISTOGRAM_BUCKETS_MS,
+  FULL_REPLY_HISTOGRAM_BUCKETS_MS,
+  SLO_TARGETS,
   WINDOW_OPTIONS,
+  buildHistogram,
+  computeSloStatus,
   parseWindowHours,
   percentile,
   summarize,
@@ -166,6 +171,269 @@ describe('summarize', () => {
 
   it('exposes agents in the canonical order', () => {
     expect(AGENTS).toEqual(['researcher', 'consolidator', 'critic']);
+  });
+});
+
+describe('summarize — F27 additions', () => {
+  const opts = { windowHours: 24, windowStartIso: WINDOW_START };
+
+  it('exposes the error-email failure count passed through SummarizeOptions', () => {
+    const s = summarize([], { ...opts, errorEmailFailures: 3 });
+    expect(s.errorEmailFailures).toBe(3);
+  });
+
+  it('defaults errorEmailFailures to 0 when omitted', () => {
+    const s = summarize([], opts);
+    expect(s.errorEmailFailures).toBe(0);
+  });
+
+  it('computes per-agent token share as a fraction of the grand total', () => {
+    const rows: CouncilMetricRow[] = [
+      row({ agent: 'researcher', tokens_in: 100, tokens_out: 200 }), // 300
+      row({ agent: 'consolidator', tokens_in: 200, tokens_out: 400 }), // 600
+      row({ agent: 'critic', tokens_in: 50, tokens_out: 50 }), // 100
+    ];
+    const s = summarize(rows, opts);
+    // Grand total = 300 + 600 + 100 = 1000.
+    const shares = Object.fromEntries(
+      s.byAgent.map((a) => [a.agent, a.tokenShare]),
+    );
+    expect(shares.researcher).toBeCloseTo(0.3, 5);
+    expect(shares.consolidator).toBeCloseTo(0.6, 5);
+    expect(shares.critic).toBeCloseTo(0.1, 5);
+    // Shares sum to 1.
+    const sum = s.byAgent.reduce((acc, a) => acc + a.tokenShare, 0);
+    expect(sum).toBeCloseTo(1, 5);
+  });
+
+  it('returns token share = 0 for every agent when no tokens were used', () => {
+    const rows: CouncilMetricRow[] = [
+      row({ agent: 'consolidator', tokens_in: 0, tokens_out: 0, outcome: 'error' }),
+    ];
+    const s = summarize(rows, opts);
+    for (const a of s.byAgent) expect(a.tokenShare).toBe(0);
+  });
+
+  it('builds a histogram per agent with fixed boundary layout', () => {
+    const rows: CouncilMetricRow[] = [
+      row({ agent: 'consolidator', full_reply_ms: 100 }),
+      row({ agent: 'consolidator', full_reply_ms: 750 }),
+      row({ agent: 'consolidator', full_reply_ms: 5000 }),
+      row({ agent: 'consolidator', full_reply_ms: 30_000 }),
+    ];
+    const s = summarize(rows, opts);
+    const consolidator = s.byAgent.find((a) => a.agent === 'consolidator')!;
+    const hist = consolidator.fullReplyHistogram;
+    // Full-reply boundaries: 500, 1000, 2000, 4000, 8000, 12000, +∞.
+    expect(hist.samples).toBe(4);
+    expect(hist.buckets).toHaveLength(FULL_REPLY_HISTOGRAM_BUCKETS_MS.length + 1);
+    // 100 < 500 → bucket 0.
+    expect(hist.buckets[0].count).toBe(1);
+    // 750 ∈ [500, 1000) → bucket 1.
+    expect(hist.buckets[1].count).toBe(1);
+    // 5000 ∈ [4000, 8000) → bucket 4.
+    expect(hist.buckets[4].count).toBe(1);
+    // 30_000 ≥ 12_000 → tail.
+    expect(hist.buckets[hist.buckets.length - 1].count).toBe(1);
+    // Tail bucket has maxMs = null (open-ended).
+    expect(hist.buckets[hist.buckets.length - 1].maxMs).toBeNull();
+  });
+
+  it('sloStatus is `no-data` when no session mode map is supplied', () => {
+    const rows: CouncilMetricRow[] = [
+      row({
+        agent: 'consolidator',
+        session_id: 'sess-a',
+        first_token_ms: 500,
+        full_reply_ms: 2000,
+      }),
+    ];
+    const s = summarize(rows, opts);
+    expect(s.sloStatus).toHaveLength(SLO_TARGETS.length);
+    for (const r of s.sloStatus) {
+      expect(r.overall).toBe('no-data');
+      expect(r.samples).toBe(0);
+      expect(r.p50Ms).toBeNull();
+      expect(r.p95Ms).toBeNull();
+    }
+  });
+
+  it('sloStatus evaluates pass for Consolidator chat first-token under target', () => {
+    const sessionModeById = new Map<string, CouncilMode>([
+      ['sess-chat', 'chat'],
+    ]);
+    // first_token SLO for chat: p50 ≤ 1200, p95 ≤ 2500.
+    const rows: CouncilMetricRow[] = [
+      row({ agent: 'consolidator', session_id: 'sess-chat', first_token_ms: 500 }),
+      row({ agent: 'consolidator', session_id: 'sess-chat', first_token_ms: 800 }),
+      row({ agent: 'consolidator', session_id: 'sess-chat', first_token_ms: 1200 }),
+    ];
+    const s = summarize(rows, { ...opts, sessionModeById });
+    const chatFirst = s.sloStatus.find(
+      (r) => r.target.surface === 'first-token:chat',
+    )!;
+    expect(chatFirst.overall).toBe('pass');
+    expect(chatFirst.samples).toBe(3);
+    expect(chatFirst.p50Verdict).toBe('pass');
+    expect(chatFirst.p95Verdict).toBe('pass');
+  });
+
+  it('sloStatus marks fail when p95 exceeds target', () => {
+    const sessionModeById = new Map<string, CouncilMode>([
+      ['sess-chat', 'chat'],
+    ]);
+    // p95 target for full-reply chat is 8000ms. Nearest-rank on N=20
+    // picks sorted[floor(0.95 * 19)] = sorted[18] — the 19th-smallest
+    // value. Two outliers land in slots 18 and 19 so the 19th-smallest
+    // is the outlier, tripping p95. (One outlier on N=20 would land
+    // in slot 19 only, and p95 would still be 2000.)
+    const rows: CouncilMetricRow[] = Array.from({ length: 20 }, (_, i) =>
+      row({
+        agent: 'consolidator',
+        session_id: 'sess-chat',
+        full_reply_ms: i < 18 ? 2000 : 30_000,
+      }),
+    );
+    const s = summarize(rows, { ...opts, sessionModeById });
+    const chatFull = s.sloStatus.find(
+      (r) => r.target.surface === 'full-reply:chat',
+    )!;
+    expect(chatFull.overall).toBe('fail');
+    expect(chatFull.p95Verdict).toBe('fail');
+    expect(chatFull.p50Verdict).toBe('pass');
+  });
+
+  it('sloStatus ignores Researcher and Critic rows', () => {
+    const sessionModeById = new Map<string, CouncilMode>([
+      ['sess-chat', 'chat'],
+    ]);
+    const rows: CouncilMetricRow[] = [
+      // Only non-consolidator rows present.
+      row({ agent: 'researcher', session_id: 'sess-chat', first_token_ms: 100 }),
+      row({ agent: 'critic', session_id: 'sess-chat', first_token_ms: 100 }),
+    ];
+    const s = summarize(rows, { ...opts, sessionModeById });
+    const chatFirst = s.sloStatus.find(
+      (r) => r.target.surface === 'first-token:chat',
+    )!;
+    expect(chatFirst.samples).toBe(0);
+    expect(chatFirst.overall).toBe('no-data');
+  });
+
+  it('sloStatus filters by mode: plan rows do not contribute to chat SLO', () => {
+    const sessionModeById = new Map<string, CouncilMode>([
+      ['sess-plan', 'plan'],
+    ]);
+    const rows: CouncilMetricRow[] = [
+      row({
+        agent: 'consolidator',
+        session_id: 'sess-plan',
+        full_reply_ms: 500, // would pass chat
+      }),
+    ];
+    const s = summarize(rows, { ...opts, sessionModeById });
+    const chatFull = s.sloStatus.find(
+      (r) => r.target.surface === 'full-reply:chat',
+    )!;
+    expect(chatFull.samples).toBe(0); // nothing routed to chat
+    expect(chatFull.overall).toBe('no-data');
+    const planFull = s.sloStatus.find(
+      (r) => r.target.surface === 'full-reply:plan',
+    )!;
+    expect(planFull.samples).toBe(1);
+    expect(planFull.overall).toBe('pass');
+  });
+
+  it('sloStatus ignores rows whose session_id is not in the mode map', () => {
+    const sessionModeById = new Map<string, CouncilMode>([
+      ['sess-known', 'chat'],
+    ]);
+    const rows: CouncilMetricRow[] = [
+      row({
+        agent: 'consolidator',
+        session_id: 'sess-orphan',
+        first_token_ms: 500,
+      }),
+      row({
+        agent: 'consolidator',
+        session_id: null,
+        first_token_ms: 500,
+      }),
+    ];
+    const s = summarize(rows, { ...opts, sessionModeById });
+    const chatFirst = s.sloStatus.find(
+      (r) => r.target.surface === 'first-token:chat',
+    )!;
+    expect(chatFirst.samples).toBe(0);
+  });
+});
+
+describe('buildHistogram', () => {
+  it('returns one bucket per boundary plus an open-ended tail', () => {
+    const h = buildHistogram([], [500, 1000]);
+    expect(h.buckets).toHaveLength(3);
+    expect(h.buckets[0]).toEqual({ minMs: 0, maxMs: 500, count: 0 });
+    expect(h.buckets[1]).toEqual({ minMs: 500, maxMs: 1000, count: 0 });
+    expect(h.buckets[2]).toEqual({ minMs: 1000, maxMs: null, count: 0 });
+  });
+
+  it('treats boundaries as exclusive upper bounds', () => {
+    const h = buildHistogram([499, 500, 999, 1000], [500, 1000]);
+    // 499 → bucket 0 (< 500)
+    // 500 → bucket 1 (not < 500, is < 1000)
+    // 999 → bucket 1
+    // 1000 → tail (not < 500, not < 1000)
+    expect(h.buckets.map((b) => b.count)).toEqual([1, 2, 1]);
+  });
+
+  it('counts samples = input length', () => {
+    const h = buildHistogram([1, 2, 3, 4, 5], FIRST_TOKEN_HISTOGRAM_BUCKETS_MS);
+    expect(h.samples).toBe(5);
+    expect(h.buckets.reduce((a, b) => a + b.count, 0)).toBe(5);
+  });
+});
+
+describe('computeSloStatus (standalone)', () => {
+  it('returns one row per SLO_TARGETS entry in stable order', () => {
+    const rows = computeSloStatus([], new Map());
+    expect(rows.map((r) => r.target.surface)).toEqual(
+      SLO_TARGETS.map((t) => t.surface),
+    );
+  });
+
+  it('no-data means samples === 0 and verdicts are no-data', () => {
+    const rows = computeSloStatus([], new Map());
+    for (const r of rows) {
+      expect(r.samples).toBe(0);
+      expect(r.p50Verdict).toBe('no-data');
+      expect(r.p95Verdict).toBe('no-data');
+      expect(r.overall).toBe('no-data');
+    }
+  });
+
+  it('greeting SLO targets match PRD §13.3: p50 ≤ 2000ms, p95 ≤ 4000ms', () => {
+    const sessionModeById = new Map<string, CouncilMode>([
+      ['greet-1', 'greeting'],
+    ]);
+    const rows: CouncilMetricRow[] = [
+      row({
+        agent: 'consolidator',
+        session_id: 'greet-1',
+        first_token_ms: 1800,
+      }),
+      row({
+        agent: 'consolidator',
+        session_id: 'greet-1',
+        first_token_ms: 3800,
+      }),
+    ];
+    const statuses = computeSloStatus(rows, sessionModeById);
+    const greet = statuses.find(
+      (r) => r.target.surface === 'first-token:greeting',
+    )!;
+    expect(greet.target.p50Ms).toBe(2000);
+    expect(greet.target.p95Ms).toBe(4000);
+    expect(greet.overall).toBe('pass');
   });
 });
 
