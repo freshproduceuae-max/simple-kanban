@@ -8,6 +8,7 @@ import {
   shouldDispatchCritic,
 } from '../shared/risk';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
+import { retryOn429, type SoftPauseInfo } from '../shared/retry-on-429';
 
 /**
  * F11 — Critic agent.
@@ -66,6 +67,26 @@ export type CriticDeps = {
     message: string;
     cause?: unknown;
   }) => void;
+  /**
+   * F30 — fires when the Anthropic call is 429'd and we're about to
+   * sleep before a retry. Critic is post-stream, so a soft-pause here
+   * delays the Critic turn persistence but never the user-visible
+   * reply.
+   *
+   * Dispatch intentionally does NOT wire this to the shared soft-pause
+   * frame buffer: that buffer flushes at the HEAD of the user-visible
+   * stream (before Consolidator tokens). By the time the Critic runs,
+   * the buffer has already been drained and any late push would be
+   * invisible to the client. Critic 429s surface via `errorHook` for
+   * server-side observability instead. Callers that want an in-process
+   * signal (e.g. logging, telemetry) may still pass this directly.
+   */
+  onSoftPause?: (info: SoftPauseInfo) => void;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep so unit tests
+   * don't wait real wall-clock between backoff attempts.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   /** Optional logger (defaults to console.error). */
   log?: (msg: string, err: unknown) => void;
 };
@@ -119,11 +140,18 @@ export async function critique(
   const callStartedAt = new Date().toISOString();
   const startMs = Date.now();
   try {
-    const response = await client.messages.create({
-      model: COUNCIL_MODEL,
-      max_tokens: 512,
-      system: CRITIC_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: `Draft to review:\n${input.draft}` }],
+    const response = await retryOn429({
+      attempt: () =>
+        client.messages.create({
+          model: COUNCIL_MODEL,
+          max_tokens: 512,
+          system: CRITIC_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: `Draft to review:\n${input.draft}` }],
+        }),
+      onBackoff: (info) => {
+        deps.onSoftPause?.(info);
+      },
+      sleep: deps.retrySleep,
     });
 
     const review = extractText(response);

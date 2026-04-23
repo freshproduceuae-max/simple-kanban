@@ -5,6 +5,7 @@ import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import { COUNCIL_VOICE_STYLEBOOK } from '../shared/voice';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
+import { retryOn429, type SoftPauseInfo } from '../shared/retry-on-429';
 
 /**
  * F10 — Consolidator agent.
@@ -42,6 +43,17 @@ export type ConsolidatorDeps = {
     message: string;
     cause?: unknown;
   }) => void;
+  /**
+   * F30 — fires when the Anthropic stream-acquisition call is 429'd
+   * and we're about to sleep before a retry. Dispatch multiplexes this
+   * into the user-visible stream as a soft-pause meta frame.
+   */
+  onSoftPause?: (info: SoftPauseInfo) => void;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep so unit tests
+   * don't wait real wall-clock between backoff attempts.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -199,14 +211,33 @@ export async function consolidate(
   // greeting reads, which fetch the newest summaries without filtering
   // on non-empty content.
 
-  // One retry, then surface the failure sentence. The retry wraps the
-  // stream *acquisition*, not the streaming itself (a mid-stream error
-  // is surfaced as failure directly — can't cleanly resume).
+  // Stream acquisition runs through retryOn429: on a 429, we back off
+  // per the vision §9 schedule (1/2/4/8/16s, 30s cap) and retry. For
+  // any non-429 error we still give one more shot — the pre-F30
+  // behaviour covered transient network flakes, and we preserve it.
+  // Beyond that, the failure sentence fires.
+  //
+  // IMPORTANT: the 30s 429 budget lives on the *first* retryOn429 call
+  // only. The second leg is a bare attemptStream — it must not start a
+  // fresh 30s 429 budget (doing so would give 60s worst-case total,
+  // violating CLAUDE.md "30s client queue + backoff"). If a 429 storm
+  // exhausted the first budget, the bare second attempt will fail fast
+  // and the failure sentence fires.
+  //
+  // The retry wraps the stream *acquisition*, not the streaming
+  // itself (a mid-stream error can't cleanly resume). Once bytes are
+  // flowing we commit.
   const callStartedAt = new Date().toISOString();
   const startMs = Date.now();
   let stream: AsyncIterable<StreamEvent>;
   try {
-    stream = await attemptStream(client, system, input.userInput);
+    stream = await retryOn429({
+      attempt: () => attemptStream(client, system, input.userInput),
+      onBackoff: (info) => {
+        deps.onSoftPause?.(info);
+      },
+      sleep: deps.retrySleep,
+    });
   } catch (firstErr) {
     log('consolidator: attempt 1 failed, retrying', firstErr);
     try {

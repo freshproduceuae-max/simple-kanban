@@ -7,6 +7,7 @@ import { COUNCIL_VOICE_STYLEBOOK } from '../shared/voice';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
 import { checkBudget } from '../shared/budget-check';
 import { reportAgentError } from '../errors/email';
+import { retryOn429, type SoftPauseInfo } from '../shared/retry-on-429';
 
 /**
  * F14 — Morning greeting composer.
@@ -69,6 +70,18 @@ export type ComposeGreetingDeps = {
   metricsRepo?: MetricsRepository;
   /** F22 — optional session repo; required alongside metricsRepo for budget check. */
   sessionRepo?: SessionRepository;
+  /**
+   * F30 — fires when the greeting's Anthropic call is 429'd and we're
+   * about to sleep before a retry. The greeting route surfaces this as
+   * a soft-pause meta frame prepended to the streamed body so the
+   * shelf can render a countdown indicator for the morning greeting.
+   */
+  onSoftPause?: (info: SoftPauseInfo) => void;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep so unit tests
+   * don't wait real wall-clock between backoff attempts.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -272,13 +285,20 @@ export async function composeFullGreeting(
   const startMs = Date.now();
   let raw: unknown;
   try {
-    raw = await client.messages.create({
-      model: COUNCIL_MODEL,
-      max_tokens: GREETING_MAX_TOKENS,
-      system,
-      // No `tools` — memory-only hot path.
-      messages: [{ role: 'user', content: 'Begin the greeting.' }],
-      stream: true,
+    raw = await retryOn429({
+      attempt: () =>
+        client.messages.create({
+          model: COUNCIL_MODEL,
+          max_tokens: GREETING_MAX_TOKENS,
+          system,
+          // No `tools` — memory-only hot path.
+          messages: [{ role: 'user', content: 'Begin the greeting.' }],
+          stream: true,
+        }),
+      onBackoff: (info) => {
+        deps.onSoftPause?.(info);
+      },
+      sleep: deps.retrySleep,
     });
   } catch (err) {
     log('greeting: stream acquisition failed', err);

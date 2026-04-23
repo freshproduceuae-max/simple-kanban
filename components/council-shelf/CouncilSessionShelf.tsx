@@ -15,8 +15,9 @@ import { ChipInput } from './ChipInput';
 import { HowIGotHereReveal } from './HowIGotHereReveal';
 import { MemoryRecallReveal } from './MemoryRecallReveal';
 import { ShelfInput } from './ShelfInput';
-import { TurnList, type ShelfTurn } from './TurnList';
+import { TurnList, type ShelfTurn, type ShelfTurnSoftPause } from './TurnList';
 import { openCouncilStream } from './stream-helpers';
+import type { SoftPauseFrame } from '@/lib/council/shared/soft-pause-frame';
 import type { CriticAudit } from '@/lib/council/server/critic-audit';
 import type {
   MemoryRecallAudit,
@@ -346,7 +347,24 @@ export function CouncilSessionShelf({
         return;
       }
 
-      const { tokens, result } = openCouncilStream(response);
+      // F30 — accumulate any `__council_meta__` soft-pause frames the
+      // stream-helpers peel off the head of the body. Each frame is
+      // one retry; we sum them so the note reads "retried 2× after 3s"
+      // rather than surfacing only the final attempt. The frames arrive
+      // at the head (before any Consolidator byte) so the indicator
+      // shows up alongside the initial cursor, not after the stream
+      // finishes — this is what makes the "paused" state perceptible.
+      const softPauseState: ShelfTurnSoftPause = {
+        attempts: 0,
+        totalSeconds: 0,
+      };
+      const onSoftPause = (frame: SoftPauseFrame) => {
+        softPauseState.attempts += 1;
+        softPauseState.totalSeconds += frame.retrySeconds;
+        updateTurn(turnId, { softPause: { ...softPauseState } });
+      };
+
+      const { tokens, result } = openCouncilStream(response, { onSoftPause });
 
       // Render the streaming turn before we await its completion so
       // the user sees the cursor the moment the response opens.
@@ -607,8 +625,21 @@ export function CouncilSessionShelf({
         const greetKind = response.headers.get('x-greeting-kind');
         if (greetKind === 'full' && response.body) {
           // Full greeting: stream it like any Council turn but with no
-          // preceding user message and no trailer handling.
-          const handle = openCouncilStream(response);
+          // preceding user message and no trailer handling. F30 — if
+          // the greeting route retried a 429 before composing, surface
+          // the pause on the greeting turn too so the user knows why
+          // the first reply hesitated.
+          const turnId = nextTurnId('g');
+          const softPauseState: ShelfTurnSoftPause = {
+            attempts: 0,
+            totalSeconds: 0,
+          };
+          const onSoftPause = (frame: SoftPauseFrame) => {
+            softPauseState.attempts += 1;
+            softPauseState.totalSeconds += frame.retrySeconds;
+            updateTurn(turnId, { softPause: { ...softPauseState } });
+          };
+          const handle = openCouncilStream(response, { onSoftPause });
           cancelActive = handle.cancel;
           // If the component unmounted before ThinkingStream got a
           // chance to mount the iterator, the reader would otherwise
@@ -618,7 +649,6 @@ export function CouncilSessionShelf({
             await handle.cancel();
             return;
           }
-          const turnId = nextTurnId('g');
           appendCouncilTurn({
             kind: 'council',
             id: turnId,

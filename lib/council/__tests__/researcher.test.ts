@@ -165,6 +165,9 @@ describe('Researcher (F09)', () => {
 
   it('fails visible on SDK error — returns the honest sentence, not throw', async () => {
     const log = vi.fn();
+    // F30: a 429 now retries through the backoff schedule before
+    // surfacing. Inject a zero-sleep so the test doesn't wait real
+    // wall-clock for the ~30s budget to exhaust.
     const client: AnthropicLike = {
       messages: { create: vi.fn().mockRejectedValue(new Error('429 rate limit')) },
     } as unknown as AnthropicLike;
@@ -176,7 +179,13 @@ describe('Researcher (F09)', () => {
         query: 'q',
         webEnabled: false,
       },
-      { client, sessionRepo: makeSessionRepo(), memoryRepo: makeMemoryRepo(), log }
+      {
+        client,
+        sessionRepo: makeSessionRepo(),
+        memoryRepo: makeMemoryRepo(),
+        log,
+        retrySleep: async () => {},
+      }
     );
     expect(finding.ok).toBe(false);
     expect(finding.text).toBe(RESEARCHER_FAIL_SENTENCE);
