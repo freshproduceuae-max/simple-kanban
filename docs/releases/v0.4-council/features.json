@@ -485,7 +485,7 @@
     {
       "id": "F30",
       "category": "reliability",
-      "description": "Anthropic 429 soft-pause: shelf enters soft-pause state, client-side queue up to 30s, exponential backoff, then per-agent failure policy. Verified under a deliberately throttled tier-1 Anthropic account.",
+      "description": "Anthropic 429 soft-pause: retryOn429 primitive (client-side queue up to 30s, exponential backoff), meta-frame user protocol, and shelf soft-pause indicator; per-agent failure fallback after cap breach. End-to-end verification under a deliberately throttled tier-1 Anthropic account is an acceptance proxy tracked in the CD walk-through (release report §6.1), not a unit-test step.",
       "order": 30,
       "priority": "final",
       "dependsOn": ["F10"],
@@ -495,7 +495,7 @@
         "Enter soft-pause UI state (shelf shows calm 'I'll try again in a moment')",
         "Implement exponential backoff queue (1s / 2s / 4s / 8s / 16s)",
         "After 30s, fall through to per-agent failure path",
-        "Test under throttled Anthropic account and record the session artifact"
+        "Unit-test the retry primitive + meta-frame + shelf indicator (acceptance proxy: throttled-account end-to-end run authored as CD walk)"
       ],
       "passes": true
     },

@@ -1,8 +1,8 @@
 # v0.4 — Multi-Agent Research Council
 
-**Status:** Machine-side close-out **complete** 2026-04-24. F01–F32 all pass code + test gates, `release/v0.4-alpha` is merged to `main`, `cd72275` is on Vercel Production, the `v0.4.0` tag is on `main`, and `simple-kanban-v0-4.vercel.app` is pinned to the production deployment id. Three CD-side acceptance proxies (F30 throttle / F31 stopwatch / F32 375px walk) remain open. Full narrative in [`v0.4.0-release-report.md`](./v0.4.0-release-report.md).
+**Status:** Machine-side close-out **complete** 2026-04-24. F01–F32 all pass code + test gates, `release/v0.4-alpha` is merged to `main` (via merge commit `d15f0ec`, PR #49), the Vercel Production alias `simple-kanban-v0-4.vercel.app` is pinned to production deployment `dpl_AB5gfgHTEEBecA8i5toTyjPyUEh1`, and the `v0.4.0` tag at `cd72275` is reachable from `main` as an ancestor. Three CD-side acceptance proxies (F30 throttle / F31 stopwatch / F32 375px walk) remain open. Full narrative in [`v0.4.0-release-report.md`](./v0.4.0-release-report.md).
 
-**Long-lived release branches:** `release/v0.4` (final, immutable pointer at `cd72275`), `release/v0.4-beta` (at `b9ea623`), `release/v0.4-alpha` (at `cd72275`, effectively equal to `release/v0.4` after the merge-forward).
+**Long-lived release branches:** `release/v0.4` (final, immutable pointer at `cd72275` — this is the durable v0.4.0 pointer), `release/v0.4-beta` (at `b9ea623`), `release/v0.4-alpha` (at `35433f0` — served as the working vehicle through the release cycle and carries one docs-only commit past `cd72275` from the PR #48 close-out chore; the Alpha *milestone* is preserved by the `v0.4.0-alpha` tag at `b303836`, not by this branch tip). `main` is at merge commit `d15f0ec` (PR #49); `v0.4.0` / `cd72275` is reachable from `main` as an ancestor.
 
 ## One-line scope
 
