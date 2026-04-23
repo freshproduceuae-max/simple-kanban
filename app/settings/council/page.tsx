@@ -154,17 +154,19 @@ function DeleteAllHistorySection(): JSX.Element {
             Type <code className="font-mono">{DELETE_ALL_PHRASE}</code>{' '}
             to confirm.
           </span>
+          {/* F32 — 44px tap floor on the confirmation phrase input
+              and the delete-all button (design-system §6.2). */}
           <input
             type="text"
             name="phrase"
             autoComplete="off"
-            className="w-full rounded border px-2 py-1 text-size-sm"
+            className="w-full rounded border min-h-tap px-2 py-1 text-size-sm"
             data-settings-delete-phrase=""
           />
         </label>
         <button
           type="submit"
-          className="self-start rounded border border-red-300 px-3 py-1 text-size-sm text-red-700 hover:bg-red-50"
+          className="inline-flex items-center justify-center self-start rounded border border-red-300 min-h-tap min-w-tap px-3 py-1 text-size-sm text-red-700 hover:bg-red-50"
           data-settings-delete-submit=""
         >
           Delete all my history

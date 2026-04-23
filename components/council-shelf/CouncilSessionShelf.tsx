@@ -831,14 +831,24 @@ function ModePicker({
             onClick={() => onChange(opt.value)}
             data-mode-option={opt.value}
             data-selected={selected ? 'true' : 'false'}
+            // F32 — min-h-tap lifts the mode-radio hit area to the
+            // 44px mobile floor (design-system §6.2). Padding stays
+            // compact so three pills still fit across 343px of shelf
+            // body at iPhone SE width.
             className={[
-              'rounded-full px-space-3 py-space-1',
+              'inline-flex items-center justify-center',
+              'rounded-full min-h-tap min-w-tap px-space-3 py-space-1',
               'text-size-sm font-family-body',
               'border border-border-default',
               'transition-colors duration-duration-fast ease-ease-standard',
               'focus-visible:shadow-ring-focus',
+              // F32 — fix pre-existing bug: `text-surface-page` was an
+              // undefined token (the ink-on-dark foreground uses the
+              // warm off-white `surface-card` per design-system §4.2).
+              // Left unchanged, the selected pill rendered ink-900 on
+              // ink-900 and the label was invisible.
               selected
-                ? 'bg-ink-900 text-surface-page'
+                ? 'bg-ink-900 text-surface-card'
                 : 'text-ink-700 hover:text-ink-900',
               'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ')}

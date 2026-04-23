@@ -157,7 +157,11 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         <p className="mt-4 text-xs text-[color:var(--color-ink-500)]">
           {rows.length} result{rows.length === 1 ? '' : 's'} on this
           page.{' '}
-          <Link href="/history" className="underline">
+          {/* F32 — 44px tap floor on the inline reset link. */}
+          <Link
+            href="/history"
+            className="inline-flex items-center justify-center min-h-tap min-w-tap align-middle underline"
+          >
             Clear filters
           </Link>
         </p>
@@ -222,7 +226,10 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                       />
                       <button
                         type="submit"
-                        className="text-xs text-[color:var(--color-ink-500)] underline hover:text-red-700"
+                        // F32 — min-h-tap lifts the per-row delete to
+                        // the 44px mobile floor without enlarging the
+                        // visual chip (kept at text-xs underlined).
+                        className="inline-flex items-center justify-center min-h-tap min-w-tap text-xs text-[color:var(--color-ink-500)] underline hover:text-red-700"
                         data-history-row-delete={r.id}
                         aria-label={`Delete session from ${formatTimestamp(
                           r.startedAt,
@@ -241,7 +248,11 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
 
       {olderHref ? (
         <div className="mt-6">
-          <Link href={olderHref} className="text-sm underline">
+          <Link
+            href={olderHref}
+            // F32 — 44px tap floor on the pagination link.
+            className="inline-flex items-center justify-center min-h-tap min-w-tap text-sm underline"
+          >
             Older sessions →
           </Link>
         </div>
@@ -279,7 +290,7 @@ function HistoryFilters({
           name="q"
           defaultValue={parsed.query ?? ''}
           placeholder="search every turn"
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border min-h-tap px-2 py-1 text-sm"
           data-history-filter="q"
         />
       </label>
@@ -336,7 +347,7 @@ function HistoryFilters({
           type="date"
           name="from"
           defaultValue={parsed.dateFromInput}
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border min-h-tap px-2 py-1 text-sm"
           data-history-filter="from"
         />
       </label>
@@ -349,7 +360,7 @@ function HistoryFilters({
           type="date"
           name="to"
           defaultValue={parsed.dateToInput}
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border min-h-tap px-2 py-1 text-sm"
           data-history-filter="to"
         />
       </label>
@@ -365,7 +376,7 @@ function HistoryFilters({
           defaultValue={
             typeof parsed.tokenMin === 'number' ? parsed.tokenMin : ''
           }
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border min-h-tap px-2 py-1 text-sm"
           data-history-filter="tokenMin"
         />
       </label>
@@ -381,7 +392,7 @@ function HistoryFilters({
           defaultValue={
             typeof parsed.tokenMax === 'number' ? parsed.tokenMax : ''
           }
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border min-h-tap px-2 py-1 text-sm"
           data-history-filter="tokenMax"
         />
       </label>
@@ -389,14 +400,14 @@ function HistoryFilters({
       <div className="flex gap-2 sm:col-span-2 md:col-span-3">
         <button
           type="submit"
-          className="rounded border px-3 py-1 text-sm"
+          className="inline-flex items-center justify-center rounded border min-h-tap min-w-tap px-3 py-1 text-sm"
           data-history-filter-apply=""
         >
           Apply
         </button>
         <Link
           href="/history"
-          className="rounded border px-3 py-1 text-sm"
+          className="inline-flex items-center justify-center rounded border min-h-tap min-w-tap px-3 py-1 text-sm"
           data-history-filter-reset=""
         >
           Reset
