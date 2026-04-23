@@ -59,6 +59,12 @@ function fakeTurn(
     risk?: 'low' | 'medium' | 'high';
     review?: string | null;
   },
+  recalledSummaries?: Array<{
+    id: string;
+    content: string;
+    sessionId: string;
+    createdAt: string;
+  }>,
 ) {
   return {
     stream: (async function* () {
@@ -74,6 +80,7 @@ function fakeTurn(
         toolCalls: [],
         tokensIn: 0,
         tokensOut: 0,
+        recalledSummaries: recalledSummaries ?? [],
       },
       critic: critic
         ? {
@@ -218,5 +225,71 @@ describe('POST /api/council/chat', () => {
     const res = await chatRoute(req({ userInput: 'morning' }));
     const body = await res.text();
     expect(body).toBe('hello back');
+  });
+
+  // -------- F24: memoryRecall trailer fragment --------
+
+  it('F24: emits a memoryRecall-only trailer when Researcher surfaced summaries and Critic stayed quiet', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('sure, morning.', undefined, [
+        {
+          id: 'sum-1',
+          content: 'You were stuck on the SLA draft yesterday.',
+          sessionId: 'sess-older',
+          createdAt: '2026-04-21T10:00:00Z',
+        },
+      ]),
+    );
+    const res = await chatRoute(req({ userInput: 'morning' }));
+    const body = await res.text();
+    const lines = body.split('\n');
+    expect(lines[0]).toBe('sure, morning.');
+    const trailer = JSON.parse(lines.at(-1) as string);
+    expect(trailer.criticAudit).toBeUndefined();
+    expect(trailer.memoryRecall).toEqual({
+      recalls: [
+        {
+          id: 'sum-1',
+          sessionId: 'sess-older',
+          createdAt: '2026-04-21T10:00:00Z',
+          snippet: 'You were stuck on the SLA draft yesterday.',
+        },
+      ],
+    });
+  });
+
+  it('F24: merges memoryRecall AND criticAudit in the same trailer when both apply', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'take tuesday off, sure.',
+        {
+          ran: true,
+          risk: 'medium',
+          review: 'The draft treats approval as given.',
+        },
+        [
+          {
+            id: 'sum-xx',
+            content: 'You mentioned a quarterly review on Tuesday.',
+            sessionId: 'sess-prev',
+            createdAt: '2026-04-20T12:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await chatRoute(req({ userInput: 'can I take tuesday off?' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.criticAudit.risk).toBe('medium');
+    expect(trailer.memoryRecall.recalls).toHaveLength(1);
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-xx');
+  });
+
+  it('F24: emits NO trailer when Researcher returned empty recalledSummaries AND Critic stayed quiet', async () => {
+    // Explicit pass — pinning the no-trailer zero-state.
+    runCouncilTurnMock.mockResolvedValueOnce(fakeTurn('ok', undefined, []));
+    const res = await chatRoute(req({ userInput: 'morning' }));
+    const body = await res.text();
+    expect(body).toBe('ok');
   });
 });

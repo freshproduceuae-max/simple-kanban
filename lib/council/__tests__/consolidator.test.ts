@@ -28,7 +28,15 @@ function makeSessionRepo(overrides: Partial<SessionRepository> = {}): SessionRep
   return {
     startSession: vi.fn(),
     endSession: vi.fn(),
-    appendTurn: vi.fn().mockResolvedValue({}),
+    // F24 — appendTurn returns a row with `.id` on the happy path so the
+    // Consolidator can resolve `done.turnId` for the recall-write chain
+    // in dispatch. Individual tests override this where they need to
+    // simulate a persistence flake.
+    appendTurn: vi
+      .fn()
+      .mockImplementation(async (input: { agent: string }) => ({
+        id: `turn-${input.agent}-${Math.random().toString(36).slice(2, 8)}`,
+      })),
     listSessionsForUser: vi.fn(),
     listTurns: vi.fn(),
     ...overrides,

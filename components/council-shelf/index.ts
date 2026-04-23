@@ -11,5 +11,7 @@ export type { ShelfTurn } from './TurnList';
 export { ChipInput } from './ChipInput';
 export { HowIGotHereReveal } from './HowIGotHereReveal';
 export type { HowIGotHereRevealProps } from './HowIGotHereReveal';
+export { MemoryRecallReveal, formatRecallDate } from './MemoryRecallReveal';
+export type { MemoryRecallRevealProps } from './MemoryRecallReveal';
 export { openCouncilStream, peelTrailer } from './stream-helpers';
 export type { CouncilStreamHandle } from './stream-helpers';

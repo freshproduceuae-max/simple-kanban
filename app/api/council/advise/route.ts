@@ -10,6 +10,7 @@ import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { buildCriticAudit } from '@/lib/council/server/critic-audit';
+import { buildMemoryRecallAudit } from '@/lib/council/server/memory-recall-audit';
 import { userRequestedPlanHandoff } from '@/lib/council/shared/handoff-request';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
 import {
@@ -48,7 +49,9 @@ import type { TaskRow } from '@/lib/persistence/types';
  *     - `handoff: 'plan'`  — user asked to pivot from reflection to drafting
  *     - `criticAudit: { risk, review, preDraft }` — F23 reveal fragment,
  *        present only when the Critic fired (risk ≥ threshold)
- *   Both fragments merge into one payload when both apply.
+ *     - `memoryRecall: { recalls: [...] }` — F24 reveal fragment,
+ *        present when the Researcher surfaced prior-session summaries
+ *   All fragments merge into one payload when multiple apply.
  *   Headers:
  *     x-council-mode: advise
  *     x-council-session-id: <resolved session id>
@@ -173,19 +176,25 @@ export async function POST(request: Request) {
     },
   );
 
-  // Trailer: emit when either the handoff is signalled OR the Critic
-  // fired. Advise doesn't force-critique (it often doesn't need the
-  // second pass), so the Critic only appears on drafts the risk
-  // heuristic flags — but when it does, the "How I got here" reveal
-  // should be available here too. Both fragments share one JSON line.
+  // Trailer: emit when any of (a) the handoff is signalled, (b) the
+  // Critic fired (F23), or (c) the Researcher surfaced prior-session
+  // summaries (F24). Advise doesn't force-critique (it often doesn't
+  // need the second pass), so the Critic only appears on drafts the
+  // risk heuristic flags — but when it does, the "How I got here"
+  // reveal should be available here too. All fragments share one JSON
+  // line.
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     // Make sure the consolidator has finished persisting before the
     // client pivots to Plan mode.
     const final = await done;
     const criticAudit = buildCriticAudit(final);
+    const memoryRecall = buildMemoryRecallAudit(
+      final.researcher.recalledSummaries,
+    );
     const payload: Record<string, unknown> = {};
     if (planHandoff) payload.handoff = 'plan';
     if (criticAudit) payload.criticAudit = criticAudit;
+    if (memoryRecall) payload.memoryRecall = memoryRecall;
     return Object.keys(payload).length > 0 ? payload : null;
   };
 

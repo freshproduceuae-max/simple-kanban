@@ -91,7 +91,16 @@ export interface MemoryRecallRow {
   id: string;
   turn_id: string;
   user_id: string;
-  source_turn_id: string;
+  /**
+   * FK to `council_turns.id` on delete set null (see migration 007).
+   * Nullable because v0.4 memory surfaces `council_memory_summaries`
+   * (session-level digests), not individual turns — so the recall row
+   * captures the snippet + user/turn attribution without a hard link
+   * back to a source turn. A future release that stores turn-level
+   * recall can populate this field; the current summary-based path
+   * leaves it null and relies on `snippet` + `created_at` for display.
+   */
+  source_turn_id: string | null;
   snippet: string;
   created_at: string;
 }

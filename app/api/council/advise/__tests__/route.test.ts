@@ -63,6 +63,12 @@ function fakeTurn(
     risk?: 'low' | 'medium' | 'high';
     review?: string | null;
   },
+  recalledSummaries?: Array<{
+    id: string;
+    content: string;
+    sessionId: string;
+    createdAt: string;
+  }>,
 ) {
   return {
     stream: (async function* () {
@@ -72,7 +78,14 @@ function fakeTurn(
       text,
       preCriticText: text,
       mode: 'advise',
-      researcher: { ok: true, text: '', toolCalls: [], tokensIn: 0, tokensOut: 0 },
+      researcher: {
+        ok: true,
+        text: '',
+        toolCalls: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        recalledSummaries: recalledSummaries ?? [],
+      },
       critic: critic
         ? {
             ran: critic.ran,
@@ -291,5 +304,86 @@ describe('POST /api/council/advise', () => {
         preDraft: 'here is how I see the board.',
       },
     });
+  });
+
+  // -------- F24: memoryRecall trailer fragment --------
+
+  it('F24: emits a memoryRecall-only trailer on Advise when memory fired and there is no handoff', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('looks steady.', undefined, [
+        {
+          id: 'sum-a',
+          content: 'Yesterday you flagged the vendor risk on the SLA card.',
+          sessionId: 'sess-old',
+          createdAt: '2026-04-21T10:00:00Z',
+        },
+      ]),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how does this board look?' }),
+    );
+    expect(res.headers.get('x-council-has-proposals')).toBeNull();
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer).toEqual({
+      memoryRecall: {
+        recalls: [
+          {
+            id: 'sum-a',
+            sessionId: 'sess-old',
+            createdAt: '2026-04-21T10:00:00Z',
+            snippet: 'Yesterday you flagged the vendor risk on the SLA card.',
+          },
+        ],
+      },
+    });
+  });
+
+  it('F24: merges memoryRecall with a handoff trailer on Advise → Plan', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('let me draft that for you.', undefined, [
+        {
+          id: 'sum-h',
+          content: 'You wanted the draft rooted in last quarter.',
+          sessionId: 'sess-h',
+          createdAt: '2026-04-15T12:00:00Z',
+        },
+      ]),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    expect(res.headers.get('x-council-has-proposals')).toBe('true');
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.handoff).toBe('plan');
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-h');
+  });
+
+  it('F24: merges memoryRecall + criticAudit + handoff when all three apply', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'let me draft that for you.',
+        {
+          ran: true,
+          risk: 'high',
+          review: 'Draft glosses over the vendor SLA dependency.',
+        },
+        [
+          {
+            id: 'sum-triple',
+            content: 'You were burned by this vendor in Q1.',
+            sessionId: 'sess-triple',
+            createdAt: '2026-01-20T12:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.handoff).toBe('plan');
+    expect(trailer.criticAudit.risk).toBe('high');
+    expect(trailer.memoryRecall.recalls[0].id).toBe('sum-triple');
   });
 });

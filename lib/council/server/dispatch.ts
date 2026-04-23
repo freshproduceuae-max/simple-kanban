@@ -9,6 +9,7 @@ import type { AnthropicLike } from '@/lib/council/shared/client';
 import { checkBudget, type BudgetCheckResult } from '@/lib/council/shared/budget-check';
 import { reportAgentError } from '@/lib/council/errors/email';
 import { invalidateSessionCacheBySessionId } from '@/lib/council/server/session';
+import { truncateRecallSnippet } from '@/lib/council/server/memory-recall-audit';
 
 /**
  * F15/F16/F17 — shared Council-turn orchestrator.
@@ -243,6 +244,10 @@ export async function runCouncilTurn(
       toolCalls: [],
       tokensIn: 0,
       tokensOut: 0,
+      // F24 — no memory was surfaced this turn, so the recall-write
+      // chain below short-circuits and no inline "I remembered …" line
+      // is rendered.
+      recalledSummaries: [],
     };
   }
 
@@ -334,9 +339,55 @@ export async function runCouncilTurn(
     },
   );
 
+  // F24 — writing recall rows is chained off the Consolidator's
+  // persisted turn id so we can FK each row back at the reply that
+  // used the memory. The promise is launched in parallel with the
+  // Critic, then awaited by `done` so the dispatch return value only
+  // resolves after all post-stream writes have settled. When the
+  // Consolidator's persistTurn failed (turnId === null) or the
+  // Researcher surfaced nothing, we skip the write entirely — a
+  // missing memory-recall row is cheap; a mis-FK'd one would be a
+  // data bug.
+  const recallWritesPromise = consolidator.done.then(async ({ turnId }) => {
+    if (!turnId) return;
+    if (researcher.recalledSummaries.length === 0) return;
+    await Promise.all(
+      researcher.recalledSummaries.map(async (summary) => {
+        try {
+          // Cap before write. The stored snippet has to match the
+          // displayed one — if we persisted the full summary here, a
+          // future read (F28 history replay) would pull back text
+          // that overshot the tail-reserve window and pollute the
+          // reveal with content the user never saw. Using the same
+          // helper the trailer uses keeps the two surfaces coherent.
+          const { snippet } = truncateRecallSnippet(summary.content);
+          // An all-empty snippet shouldn't reach here (the Researcher
+          // filters blanks), but guard anyway so we don't insert a
+          // recall row with no visible body.
+          if (snippet.length === 0) return;
+          await deps.memoryRepo.writeRecall({
+            turn_id: turnId,
+            user_id: input.userId,
+            // Null — v0.4 memory surfaces summaries, not individual
+            // turns (see `MemoryRecallRow` JSDoc + migration 007).
+            source_turn_id: null,
+            snippet,
+          });
+        } catch (writeErr) {
+          log('dispatch: writeRecall failed (swallowed)', writeErr);
+        }
+      }),
+    );
+  });
+
   const done = (async () => {
     const finalConsolidator = await consolidator.done;
     const critic = await criticPromise;
+    // Wait for recall writes before resolving `done` so tests and
+    // downstream observers (F28 history) see a consistent DB state.
+    // Errors are already swallowed inside the chain; awaiting a
+    // settled promise here never rejects.
+    await recallWritesPromise;
     return {
       text: warnBanner
         ? `${warnBanner}\n\n${finalConsolidator.text}`
@@ -397,6 +448,9 @@ function cutResult(
       toolCalls: [],
       tokensIn: 0,
       tokensOut: 0,
+      // Budget cuts skip the Researcher entirely — nothing was
+      // surfaced, so F24 recall rendering short-circuits.
+      recalledSummaries: [],
     } satisfies ResearcherFinding,
     critic: {
       ran: false,
