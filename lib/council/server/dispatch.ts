@@ -75,9 +75,17 @@ export type RunCouncilTurnResult = {
    * Settles after the Consolidator stream ends AND the Critic has
    * finished (or skipped). Routes MUST await this before the HTTP
    * response closes so the Critic has a chance to persist its review.
+   *
+   * `preCriticText` is the raw Consolidator draft the Critic reviewed —
+   * no warn banner, no fence stripping. F23 ("How I got here" reveal)
+   * needs this alongside `critic.review` so the client can show the
+   * user what the Council drafted next to what the Critic flagged.
+   * `text` is the final, user-visible string (banner + draft); the two
+   * differ only when a budget warn banner is prepended.
    */
   done: Promise<{
     text: string;
+    preCriticText: string;
     mode: CouncilMode;
     researcher: ResearcherFinding;
     critic: CriticResult;
@@ -333,6 +341,10 @@ export async function runCouncilTurn(
       text: warnBanner
         ? `${warnBanner}\n\n${finalConsolidator.text}`
         : finalConsolidator.text,
+      // What the Critic actually reviewed — raw, unbannered. F23
+      // surfaces this in "How I got here" so the user can compare the
+      // Council's draft against the Critic's notes.
+      preCriticText: finalConsolidator.text,
       mode: finalConsolidator.mode,
       researcher,
       critic,
@@ -374,6 +386,10 @@ function cutResult(
   };
   const done = Promise.resolve({
     text: sentence,
+    // Budget cuts never run the Consolidator, so no real draft exists.
+    // Echo the cut sentence so F23 receivers can render a zero-state
+    // reveal rather than crashing on an undefined field.
+    preCriticText: sentence,
     mode: mode as CouncilMode,
     researcher: {
       ok: false,

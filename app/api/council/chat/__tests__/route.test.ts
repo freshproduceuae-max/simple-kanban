@@ -52,13 +52,21 @@ function req(body: unknown): Request {
   });
 }
 
-function fakeTurn(text = 'hello back') {
+function fakeTurn(
+  text = 'hello back',
+  critic?: {
+    ran: boolean;
+    risk?: 'low' | 'medium' | 'high';
+    review?: string | null;
+  },
+) {
   return {
     stream: (async function* () {
       yield text;
     })(),
     done: Promise.resolve({
       text,
+      preCriticText: text,
       mode: 'chat',
       researcher: {
         ok: true,
@@ -67,7 +75,15 @@ function fakeTurn(text = 'hello back') {
         tokensIn: 0,
         tokensOut: 0,
       },
-      critic: { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
+      critic: critic
+        ? {
+            ran: critic.ran,
+            risk: critic.risk ?? 'low',
+            review: critic.review ?? null,
+            tokensIn: 0,
+            tokensOut: 0,
+          }
+        : { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
     }),
   };
 }
@@ -173,5 +189,34 @@ describe('POST /api/council/chat', () => {
     const s1 = runCouncilTurnMock.mock.calls[0][0].sessionId;
     expect(s1).toBe(REAL_UUID);
     expect(startSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('F23: emits a criticAudit trailer when the Critic fires on a chat draft', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('sure, take Tuesday off.', {
+        ran: true,
+        risk: 'medium',
+        review: 'The draft treats the time-off as already approved.',
+      }),
+    );
+    const res = await chatRoute(req({ userInput: 'can I take tuesday off?' }));
+    const body = await res.text();
+    const lines = body.split('\n');
+    // Human-visible text is the first line; JSON trailer is the last.
+    expect(lines[0]).toBe('sure, take Tuesday off.');
+    const trailer = JSON.parse(lines.at(-1) as string);
+    expect(trailer.criticAudit).toEqual({
+      risk: 'medium',
+      review: 'The draft treats the time-off as already approved.',
+      preDraft: 'sure, take Tuesday off.',
+    });
+  });
+
+  it('F23: emits NO trailer on chat turns where the Critic did not run', async () => {
+    // Most Chat turns are low risk — the body should be exactly the
+    // streamed text, no stray JSON line.
+    const res = await chatRoute(req({ userInput: 'morning' }));
+    const body = await res.text();
+    expect(body).toBe('hello back');
   });
 });

@@ -12,9 +12,11 @@ import {
 import { ProposalCard } from '@/components/proposal-card';
 import { ThinkingStream } from '@/components/thinking-stream';
 import { ChipInput } from './ChipInput';
+import { HowIGotHereReveal } from './HowIGotHereReveal';
 import { ShelfInput } from './ShelfInput';
 import { TurnList, type ShelfTurn } from './TurnList';
 import { openCouncilStream } from './stream-helpers';
+import type { CriticAudit } from '@/lib/council/server/critic-audit';
 
 /**
  * F22a — CouncilSessionShelf composite.
@@ -62,8 +64,39 @@ const STORAGE_KEY = 'plan.councilSessionId';
 type Mode = 'chat' | 'plan' | 'advise';
 
 type ProposalFrame = { id: string; title: string };
-type PlanTrailer = { proposals?: ProposalFrame[]; chips?: string[] };
-type AdviseTrailer = { handoff?: 'plan' };
+type CriticAuditTrailer = { criticAudit?: CriticAudit };
+type PlanTrailer = CriticAuditTrailer & {
+  proposals?: ProposalFrame[];
+  chips?: string[];
+};
+type AdviseTrailer = CriticAuditTrailer & { handoff?: 'plan' };
+
+/**
+ * Narrow an unknown trailer fragment to a `CriticAudit` — a defensive
+ * check that keeps us honest when a future server version adds fields
+ * or a garbled trailer slips past `openCouncilStream`'s JSON parse.
+ * Returns `null` if any required shape is missing or malformed.
+ */
+function extractCriticAudit(trailer: unknown): CriticAudit | null {
+  if (!trailer || typeof trailer !== 'object') return null;
+  const raw = (trailer as CriticAuditTrailer).criticAudit;
+  if (!raw || typeof raw !== 'object') return null;
+  const risk = (raw as { risk?: unknown }).risk;
+  const review = (raw as { review?: unknown }).review;
+  const preDraft = (raw as { preDraft?: unknown }).preDraft;
+  const preDraftTruncated = (raw as { preDraftTruncated?: unknown })
+    .preDraftTruncated;
+  if (
+    (risk !== 'low' && risk !== 'medium' && risk !== 'high') ||
+    typeof review !== 'string' ||
+    typeof preDraft !== 'string'
+  ) {
+    return null;
+  }
+  const audit: CriticAudit = { risk, review, preDraft };
+  if (preDraftTruncated === true) audit.preDraftTruncated = true;
+  return audit;
+}
 
 /**
  * Strip the fenced ```json-plan …``` block from a Plan reply before
@@ -277,7 +310,10 @@ export function CouncilSessionShelf({
       const displayText =
         runMode === 'plan' ? stripPlanFence(fullText) : fullText;
 
-      let extras: ReactNode | undefined;
+      // Collect mode-specific extras fragments; the reveal is shared
+      // across all three modes and sits last so the user reads the
+      // affordances (proposals/chips) first and the audit below.
+      const extrasFragments: ReactNode[] = [];
 
       if (runMode === 'plan' && trailer && typeof trailer === 'object') {
         const planTrailer = trailer as PlanTrailer;
@@ -294,8 +330,9 @@ export function CouncilSessionShelf({
           ? planTrailer.chips.filter((c): c is string => typeof c === 'string')
           : [];
         if (proposals.length > 0 || chips.length > 0) {
-          extras = (
+          extrasFragments.push(
             <div
+              key="plan-affordances"
               data-turn-extras-kind="plan"
               className="flex flex-col gap-space-3"
             >
@@ -329,10 +366,26 @@ export function CouncilSessionShelf({
                   ))}
                 </div>
               ) : null}
-            </div>
+            </div>,
           );
         }
       }
+
+      // F23 — "How I got here" reveal. Every mode's trailer can carry
+      // a `criticAudit` fragment; render it when present. No mode gate:
+      // Chat/Advise emit it only when the Critic fires (risk ≥
+      // threshold), Plan emits it on every turn (forceCritic=true).
+      const criticAudit = extractCriticAudit(trailer);
+      if (criticAudit) {
+        extrasFragments.push(
+          <HowIGotHereReveal key="how-i-got-here" audit={criticAudit} />,
+        );
+      }
+
+      const extras: ReactNode | undefined =
+        extrasFragments.length > 0 ? (
+          <div className="flex flex-col gap-space-3">{extrasFragments}</div>
+        ) : undefined;
 
       updateTurn(turnId, {
         stream: undefined,

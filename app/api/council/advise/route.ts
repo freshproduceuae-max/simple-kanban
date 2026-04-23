@@ -9,6 +9,7 @@ export const maxDuration = 60;
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
+import { buildCriticAudit } from '@/lib/council/server/critic-audit';
 import { userRequestedPlanHandoff } from '@/lib/council/shared/handoff-request';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
 import {
@@ -43,11 +44,19 @@ import type { TaskRow } from '@/lib/persistence/types';
  *
  * Response:
  *   200 text/plain streamed Consolidator reply, optionally followed by
- *   a JSON trailer `{ "handoff": "plan" }` on a fresh line.
+ *   a JSON trailer on a fresh line. The trailer may carry:
+ *     - `handoff: 'plan'`  — user asked to pivot from reflection to drafting
+ *     - `criticAudit: { risk, review, preDraft }` — F23 reveal fragment,
+ *        present only when the Critic fired (risk ≥ threshold)
+ *   Both fragments merge into one payload when both apply.
  *   Headers:
  *     x-council-mode: advise
  *     x-council-session-id: <resolved session id>
- *     x-council-has-proposals: true (only when a trailer will be emitted)
+ *     x-council-has-proposals: true — ONLY when the handoff is signaled
+ *       pre-stream. Critic-only trailers (F23) do NOT set this header,
+ *       because Advise cannot predict pre-stream whether the Critic
+ *       will fire. Clients must always attempt to peel the last LF-
+ *       delimited line regardless of the header.
  *
  * Errors:
  *   401 not-authenticated
@@ -164,16 +173,21 @@ export async function POST(request: Request) {
     },
   );
 
-  // Trailer: only emit when handoff is signalled. Advise otherwise has
-  // no structured frame — the reply is the entire response body.
-  const trailer = planHandoff
-    ? async (): Promise<Record<string, unknown> | null> => {
-        // Make sure the consolidator has finished persisting before the
-        // client pivots to Plan mode.
-        await done;
-        return { handoff: 'plan' };
-      }
-    : undefined;
+  // Trailer: emit when either the handoff is signalled OR the Critic
+  // fired. Advise doesn't force-critique (it often doesn't need the
+  // second pass), so the Critic only appears on drafts the risk
+  // heuristic flags — but when it does, the "How I got here" reveal
+  // should be available here too. Both fragments share one JSON line.
+  const trailer = async (): Promise<Record<string, unknown> | null> => {
+    // Make sure the consolidator has finished persisting before the
+    // client pivots to Plan mode.
+    const final = await done;
+    const criticAudit = buildCriticAudit(final);
+    const payload: Record<string, unknown> = {};
+    if (planHandoff) payload.handoff = 'plan';
+    if (criticAudit) payload.criticAudit = criticAudit;
+    return Object.keys(payload).length > 0 ? payload : null;
+  };
 
   const res = streamCouncilReply({
     chunks: stream,

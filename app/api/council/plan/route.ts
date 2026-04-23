@@ -14,6 +14,7 @@ import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
 import { extractPlanFrame } from '@/lib/council/server/plan-extract';
+import { buildCriticAudit } from '@/lib/council/server/critic-audit';
 import {
   getProposalRepository,
   getSessionRepository,
@@ -114,11 +115,20 @@ export async function POST(request: Request) {
   // The trailer runs after the stream drains and the consolidator's
   // final `done` resolves. We parse the JSON-plan frame, create one
   // proposal row per draft task, and emit the id list + any
-  // Consolidator-requested chips as the response trailer.
+  // Consolidator-requested chips as the response trailer. F23 also
+  // merges a `criticAudit` fragment so the shelf composer can render
+  // the "How I got here" reveal next to proposal cards — Plan force-
+  // critiques every draft (forceCritic=true above), so this is the
+  // mode where the reveal is most likely to appear.
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     const final = await done;
+    const criticAudit = buildCriticAudit(final);
     const frame = extractPlanFrame(final.text);
-    if (frame.tasks.length === 0 && frame.chips.length === 0) {
+    if (
+      frame.tasks.length === 0 &&
+      frame.chips.length === 0 &&
+      criticAudit === null
+    ) {
       return null;
     }
 
@@ -157,6 +167,7 @@ export async function POST(request: Request) {
     const payload: Record<string, unknown> = {};
     if (proposals.length > 0) payload.proposals = proposals;
     if (frame.chips.length > 0) payload.chips = frame.chips;
+    if (criticAudit) payload.criticAudit = criticAudit;
     return Object.keys(payload).length > 0 ? payload : null;
   };
 

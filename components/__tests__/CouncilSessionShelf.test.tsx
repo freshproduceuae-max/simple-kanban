@@ -409,6 +409,104 @@ describe('CouncilSessionShelf', () => {
     expect(calls.length).toBe(2);
   });
 
+  it('renders "How I got here" when the trailer carries a criticAudit', async () => {
+    // F23 — the reveal component is shared across all three modes.
+    // This test covers the Plan path (forceCritic=true) where the
+    // audit fragment rides alongside proposals in the same trailer.
+    const user = userEvent.setup();
+    const trailer = {
+      proposals: [{ id: 'p-1', title: 'Ship' }],
+      criticAudit: {
+        risk: 'medium',
+        review: 'The draft commits Thursday without a buffer.',
+        preDraft: 'Ship Thursday.',
+      },
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse([
+          'drafted.',
+          '\n' + JSON.stringify(trailer),
+        ]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.click(screen.getByRole('radio', { name: /plan/i }));
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'plan a launch',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+
+    // Proposal still renders.
+    await waitFor(() =>
+      expect(screen.getByText('Ship')).toBeInTheDocument(),
+    );
+
+    // Trigger renders collapsed; the review text is not in the DOM yet.
+    const trigger = screen.getByRole('button', { name: /how i got here/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByText(/commits thursday without a buffer/i),
+    ).not.toBeInTheDocument();
+
+    // Expanding surfaces the draft + review in the panel.
+    await user.click(trigger);
+    expect(
+      screen.getByText(/commits thursday without a buffer/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Ship Thursday.')).toBeInTheDocument();
+    expect(screen.getByText(/medium risk/i)).toBeInTheDocument();
+  });
+
+  it('does not render "How I got here" when the trailer has no criticAudit', async () => {
+    // Chat turns below the risk threshold skip the Critic entirely,
+    // so the trailer has no audit fragment — the reveal must not
+    // render a dead trigger.
+    const user = userEvent.setup();
+    const { impl } = recordFetch([
+      () => streamingResponse(['noted.']),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'morning',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/noted/)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole('button', { name: /how i got here/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('tolerates a malformed criticAudit trailer by omitting the reveal', async () => {
+    // Defensive: a future server contract with a different audit
+    // shape must not crash the turn. The rest of the reply should
+    // render; the reveal simply doesn't appear.
+    const user = userEvent.setup();
+    const trailer = {
+      criticAudit: { risk: 'nonsense', review: null, preDraft: 42 },
+    };
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse([
+          'ok.',
+          '\n' + JSON.stringify(trailer),
+        ]),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hi',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText(/ok/)).toBeInTheDocument());
+    expect(
+      screen.queryByRole('button', { name: /how i got here/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it('gates chip follow-up submissions through the same inFlight lock as the input', async () => {
     const user = userEvent.setup();
     // 1) Plan turn with a single chip and 2) a held plan turn the
