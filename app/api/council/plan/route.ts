@@ -1,5 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getAuthedIdentity } from '@/lib/auth/current-user';
+
+// F22a — Vercel runtime pins for the Council streaming routes.
+// `edge` cannot satisfy our current deps (Supabase service-key calls +
+// @anthropic-ai/sdk) and hits a 25s hard ceiling; `nodejs` + a 60s max
+// duration matches a long Plan turn (Researcher tool use + Critic
+// pass + Consolidator stream) without risking a 504 mid-stream.
+// See PR #32 — this file is the reapplied intent of that stale PR.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
@@ -26,7 +36,8 @@ import {
  * Response:
  *   200 text/plain streamed Consolidator reply, followed by a JSON
  *   trailer frame on a fresh line:
- *       { "proposals": ["<id>", ...], "chips": ["scope?", ...] }
+ *       { "proposals": [{"id": "<uuid>", "title": "<draft title>"}, ...],
+ *         "chips": ["scope?", ...] }
  *   Headers:
  *     x-council-mode: plan
  *     x-council-session-id: <resolved session id>
@@ -111,7 +122,13 @@ export async function POST(request: Request) {
       return null;
     }
 
-    const proposalIds: string[] = [];
+    // `proposals` carries the shape the shelf composer needs to
+    // render <ProposalCard> directly: an id (for the approve POST)
+    // and a title (for the card heading). Zipping id+title on the
+    // client via a second `extractPlanFrame` call would duplicate
+    // the parse that already happened here — the server is the
+    // single source of truth for "what did we actually persist?".
+    const proposals: { id: string; title: string }[] = [];
     if (frame.tasks.length > 0) {
       const repo = getProposalRepository();
       for (const title of frame.tasks) {
@@ -127,7 +144,7 @@ export async function POST(request: Request) {
             kind: 'task',
             payload: { title },
           } as Parameters<typeof repo.create>[0]);
-          proposalIds.push(row.id);
+          proposals.push({ id: row.id, title });
         } catch (err) {
           // Per PRD §9: a proposal-create failure inside Plan is
           // fail-visible but should not truncate the user-visible reply
@@ -138,7 +155,7 @@ export async function POST(request: Request) {
     }
 
     const payload: Record<string, unknown> = {};
-    if (proposalIds.length > 0) payload.proposals = proposalIds;
+    if (proposals.length > 0) payload.proposals = proposals;
     if (frame.chips.length > 0) payload.chips = frame.chips;
     return Object.keys(payload).length > 0 ? payload : null;
   };
