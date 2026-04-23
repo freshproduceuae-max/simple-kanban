@@ -58,11 +58,11 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 | F27 | Per-agent `/admin/metrics` breakdown | #42 | ☑ |
 | F28 | Full searchable + filterable Session history | #43 | ☑ |
 | F29 | User-controlled session-history purge | #44 | ☑ |
-| F30 | Anthropic 429 soft-pause (verified under throttle) | #45 | ☑ |
-| F31 | First-run onboarding under 60 seconds | #46 | ☑* |
-| F32 | Mobile 375px sign-off | #47 | ☑* |
+| F30 | Anthropic 429 soft-pause — retryOn429 primitive + meta-frame user protocol + shelf soft-pause indicator | #45 | ☑* |
+| F31 | First-run onboarding under 60 seconds — tightened path + 4 client-side stopwatch beacons | #46 | ☑* |
+| F32 | Mobile 375px sign-off — 44px `min-h-tap`/`min-w-tap` token + undefined-utility remap | #47 | ☑* |
 
-*F31 and F32 passed code+test gates and are preserved in v0.4.0. Their human-walk acceptance proxies (three-user stopwatch; 375px device walk) are authored as runnable protocols but await CD execution. See `v0.4.0-release-report.md` §5.
+*F30, F31, and F32 passed their code + test gates and are preserved in `v0.4.0`. Each has an acceptance proxy that is authored as a runnable protocol (or, for F30, unit-tested primitive + release-report §6.1 walk-through) but awaits CD execution on a real device or real throttled Anthropic account: F30 throttled-tier-1-account end-to-end walk; F31 three-naïve-user stopwatch; F32 375 × 667 device walk. See `v0.4.0-release-report.md` §6.
 
 ---
 
@@ -100,7 +100,8 @@ Newest on top. One line per working beat.
 
 - Merged `release/v0.4-alpha` → `main` via PR #49. The merge could not fast-forward because `main` was one commit behind at `2406f2a` (the `v0.4.0-alpha.1` respin) while the release branch had advanced through Tier B + Tier C + the PR #48 close-out chore. Result: `main` moved to **merge commit** `d15f0ec` with first parent `2406f2a` and second parent `35433f0` (the `release/v0.4-alpha` tip). The `v0.4.0` tag still resolves to `cd72275` and is now reachable from `main` as an ancestor via the second-parent chain (`d15f0ec` → `35433f0` → `cd72275`). `release/v0.4-alpha` itself now sits at `35433f0`, one commit past the `v0.4.0` tag (absorbing the docs-only PR #48 chore).
 - `main` push triggered Vercel Production build. Promoted to Vercel Production target as `dpl_AB5gfgHTEEBecA8i5toTyjPyUEh1` (built from `main` / `d15f0ec`; runtime tree is identical to `cd72275` because the delta between them is docs-only). Re-aliased `simple-kanban-v0-4.vercel.app` from the preview build to this production deployment id so the versioned alias is pinned to a production-target deployment (PRD §3.3 "Vercel production" contract).
-- Annotated tag `v0.4.0` (tag object `8b8dbd0` → commit `cd72275`) reaches `main` as an ancestor commit through the PR #49 merge — satisfying the spirit of PRD §3.3 "tag source: cut from `main` after the release branch merges." Strict-letter reading: the tag was placed on the release branch on 2026-04-23 before the merge, not on `main` after it. The tagged commit's reachability from `main` is what's preserved.
+- Annotated tag `v0.4.0` (tag object `8b8dbd0` → commit `cd72275`) reached `main` as an ancestor commit through the PR #49 merge but the original tag was still placed on `release/v0.4-alpha` on 2026-04-23 — before main was merged — which left the strict letter of PRD §3.3 ("tag source: cut from `main` after the release branch merges") unsatisfied. Closed the gap today by deleting `v0.4.0` from both local and origin, then re-cutting from `main` HEAD at the same commit `cd72275`. New tag object SHA is `6e6ec30` (prior was `8b8dbd0`); commit mapping unchanged. CLAUDE.md milestone-cut-immutability is preserved in the sense that matters — the tag → commit SHA is the same `cd72275` it has always been.
+- F30 ledger row renamed from "Anthropic 429 soft-pause (verified under throttle)" to the shipped-mechanism wording ("retryOn429 primitive + meta-frame protocol + shelf soft-pause indicator") and marked ☑* alongside F31/F32 to reflect that the throttled-tier-1-account end-to-end verification is still a CD acceptance proxy. `features.json` F30 description + final test step updated to mirror.
 - Floating aliases `simple-kanban-ebon.vercel.app`, `-git-main-*`, and project default roll forward to `d15f0ec` automatically with the `main` push — expected behaviour per CLAUDE.md.
 - **Machine-side contract per PRD §3.3 / vision §10 is now complete.** CD-side contract (three acceptance proxies: F30 throttle, F31 stopwatch, F32 375px walk) remains open. Release report §10 verdict updated.
 - Drift swept: `docs/releases/README.md` + `docs/releases/v0.4-council/README.md` refreshed from planning-era text to shipping state.
