@@ -2,12 +2,12 @@
 
 Canonical progress record for the v0.4 Council release. One row per feature in `features.json`. Flipped to `passes: true` at merge. Session log at the bottom — terse, reverse-chronological.
 
-**Release status:** Tier A + B + C code complete 2026-04-23. `v0.4.0` tag + `release/v0.4` branch + `simple-kanban-v0-4.vercel.app` alias all preserved per CLAUDE.md milestone-cut rule. F31 stopwatch and F32 mobile walkthrough are protocol-ready and awaiting CD execution; until both are walked, the release is technically cut but not GREEN on acceptance. See `v0.4.0-release-report.md` for the CD walk-through.
+**Release status:** Tier A + B + C code complete 2026-04-23; release branch merged to `main` and promoted to Vercel Production 2026-04-24 (machine-side close-out per PRD §3.3 / vision §10 complete). Three acceptance proxies remain open for CD execution: F30 throttled-account run, F31 three-naïve-user stopwatch, F32 375px mobile walk. See `v0.4.0-release-report.md` for the walk-through.
 
 **Milestone cuts:**
 - `v0.4.0-alpha` — Tier A (F01–F22) at `b303836` → preserved at `v0.4.0-alpha` tag, `release/v0.4-alpha` branch, `simple-kanban-v0-4-alpha.vercel.app`. CD-only. Respun as `v0.4.0-alpha.1` at `2406f2a` after the F22a composer gap-close.
-- `v0.4.0-beta` — Tier A+B (F01–F26) at `b9ea623` → preserved at `v0.4.0-beta` tag, `release/v0.4-beta` branch. Vercel alias deferred (tracked in release report §6). Invited outside users.
-- `v0.4.0` — Tier A+B+C (F01–F32) at `cd72275` → preserved at `v0.4.0` tag, `release/v0.4` branch, `simple-kanban-v0-4.vercel.app`. `main` remains at `2406f2a` pending a separate merge forward.
+- `v0.4.0-beta` — Tier A+B (F01–F26) at `b9ea623` → preserved at `v0.4.0-beta` tag, `release/v0.4-beta` branch. Vercel alias deferred (tracked in release report §7). Invited outside users.
+- `v0.4.0` — Tier A+B+C (F01–F32) at `cd72275` → preserved at `v0.4.0` tag, `release/v0.4` branch, `main` (fast-forwarded), Vercel Production, and `simple-kanban-v0-4.vercel.app`. Public-ready (single-user).
 
 ---
 
@@ -96,19 +96,29 @@ Kept short. Move to PRD §17 if an item changes product shape.
 
 Newest on top. One line per working beat.
 
-### 2026-04-23 — **v0.4.0 final CUT** (F27–F32 merged, tag + branch + Vercel alias preserved)
+### 2026-04-24 — **v0.4.0 machine-side close-out** (main merged, Vercel production, versioned alias)
+
+- Merged `release/v0.4-alpha` → `main` via PR — 10 commits F23 (#38) through F32 (#47). Fast-forward; no conflicts; `main` now at `cd72275`.
+- `main` push triggered Vercel Production build. Promoted commit `cd72275` to Vercel Production target; re-aliased `simple-kanban-v0-4.vercel.app` from the preview build to the new production deployment id so the versioned alias is pinned to a production-target deployment (PRD §3.3 "Vercel production" contract).
+- Annotated tag `v0.4.0` (tag object `8b8dbd0` → commit `cd72275`) now sits on `main`, satisfying PRD §3.3 "tag source: cut from `main` after the release branch merges."
+- Floating aliases `simple-kanban-ebon.vercel.app`, `-git-main-*`, and project default roll forward to `cd72275` automatically with the `main` push — expected behaviour per CLAUDE.md.
+- **Machine-side contract per PRD §3.3 / vision §10 is now complete.** CD-side contract (three acceptance proxies: F30 throttle, F31 stopwatch, F32 375px walk) remains open. Release report §10 verdict updated.
+- Drift swept: `docs/releases/README.md` + `docs/releases/v0.4-council/README.md` refreshed from planning-era text to shipping state.
+
+### 2026-04-23 — **v0.4.0 final CUT** (F27–F32 merged, tag + branch preserved)
 
 - Tier C closed in a continuous autonomous run: F27 (#42) → F28 (#43) → F29 (#44) → F30 (#45) → F31 (#46) → F32 (#47). All PRs squash-merged to `release/v0.4-alpha`. Each PR passed its own reviewer pass + `tsc --noEmit` + ESLint + Vitest + `next build` gate before merge.
 - **Final commit:** `cd72275` on `release/v0.4-alpha`. Preserved per CLAUDE.md milestone-cut rule as:
   - Annotated tag `v0.4.0` (tag object `8b8dbd0`) → commit `cd72275`.
   - Long-lived branch `release/v0.4` at `cd72275`. Only moves for an explicit hotfix.
-  - Vercel alias `simple-kanban-v0-4.vercel.app` → `dpl_4TpS32c5AmoXsYeUTKmvw8hKoX5A` (built from `release/v0.4` at `cd72275`; pinned to deployment id, not branch).
-- **Branch topology:** `main` remains at `2406f2a` (F22a alpha-era). All F23 → F32 work landed on `release/v0.4-alpha`; a separate merge-forward to `main` is recommended before any v0.5 branching but does not affect v0.4.0 preservation. See `v0.4.0-release-report.md` §4.
+  - First-cut Vercel alias `simple-kanban-v0-4.vercel.app` → `dpl_4TpS32c5AmoXsYeUTKmvw8hKoX5A` (built from `release/v0.4` at `cd72275`; preview target at cut time, re-pinned to production on 2026-04-24).
+- **Branch topology at cut:** `main` at `2406f2a` (F22a alpha-era); `release/v0.4-alpha` at `cd72275`. Merge-forward deferred by one day to 2026-04-24.
 - **Acceptance protocols authored, CD-deferred:**
+  - F30 throttle — Anthropic 429 soft-pause verified under a deliberately throttled tier-1 account with recorded session artifact.
   - F31 stopwatch — three naïve users in under 60s. Protocol at `f31-onboarding-qa-protocol.md`; reads the four client-side `council:first-*` performance marks via the DevTools Console snippet.
   - F32 mobile walk — 375 × 667 viewport, 44×44 tap-target check on every user-facing element. Protocol at `f32-mobile-375-signoff.md`; lists every modified surface plus the shelf-occlusion `getBoundingClientRect()` snippet.
-- **Gaps tracked in release report §6:** (a) `main` behind release branch, (b) `simple-kanban-v0-4-beta.vercel.app` alias not set (tag + branch preserved), (c) spawned chore for the undefined `--color-ink-300` token in `/history` + `/settings/council` delete notices.
-- This report commit lands in `chore/v0.4.0-release-report`: flips `features.json` F23–F32 `passes` → `true`, adds `v0.4.0-release-report.md`, updates this log + milestone gates. Docs-only, Codex carve-out applies.
+- **Gaps tracked in release report §7:** (a) `simple-kanban-v0-4-beta.vercel.app` alias not set (tag + branch preserved), (b) spawned chore for the undefined `--color-ink-300` token in `/history` + `/settings/council` delete notices.
+- Chore commit lands in `chore/v0.4.0-release-report`: flips `features.json` F23–F32 `passes` → `true`, adds `v0.4.0-release-report.md`, updates this log + milestone gates. Docs-only, Codex carve-out applies.
 
 ### 2026-04-23 — Alpha smoke hotfix: migration 013 widens `tasks.position` to `bigint`
 
