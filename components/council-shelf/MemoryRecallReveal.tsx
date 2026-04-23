@@ -145,9 +145,12 @@ export function MemoryRecallReveal({
         aria-controls={panelId}
         data-memory-recall-trigger=""
         onClick={() => setOpen((v) => !v)}
+        // F32 — the memory-recall disclosure trigger. Same contract
+        // as HowIGotHereReveal above: min-h-tap lifts the hit area to
+        // 44px on mobile; visual density unchanged.
         className={[
           'self-start',
-          'rounded-sm',
+          'rounded-sm min-h-tap',
           'text-size-xs font-family-body text-ink-500',
           'underline underline-offset-2 decoration-dotted',
           'transition-colors duration-duration-fast ease-ease-standard',

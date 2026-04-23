@@ -76,9 +76,12 @@ export function ChipInput({ label, onSubmit, disabled }: ChipInputProps) {
         disabled={disabled}
         data-chip-state="compact"
         className={
-          'inline-flex items-center rounded-full border border-dashed ' +
-          'border-ink-40 px-3 py-1 text-sm text-ink-70 transition-colors ' +
-          'hover:border-ink-70 hover:text-ink focus-visible:outline-none ' +
+          // F32 — min-h-tap keeps the 44px mobile hit area; visual
+          // padding stays compact to honour the editorial-quiet shelf.
+          'inline-flex items-center justify-center min-h-tap rounded-full ' +
+          'border border-dashed border-border-default px-space-3 py-space-1 ' +
+          'text-size-sm text-ink-700 transition-colors ' +
+          'hover:border-ink-700 hover:text-ink-900 focus-visible:outline-none ' +
           'focus-visible:shadow-ring-focus disabled:opacity-50'
         }
       >
@@ -91,7 +94,7 @@ export function ChipInput({ label, onSubmit, disabled }: ChipInputProps) {
     <form
       onSubmit={handleSubmit}
       data-chip-state="expanded"
-      className="inline-flex items-center gap-2"
+      className="inline-flex items-center gap-space-2"
     >
       <label htmlFor={inputId} className="sr-only">
         {label}
@@ -111,10 +114,11 @@ export function ChipInput({ label, onSubmit, disabled }: ChipInputProps) {
         disabled={disabled}
         placeholder={label}
         className={
-          'min-w-[10rem] rounded-full border border-ink-40 bg-transparent ' +
-          'px-3 py-1 text-sm text-ink placeholder:text-ink-50 ' +
-          'focus-visible:outline-none focus-visible:shadow-ring-focus ' +
-          'disabled:opacity-50'
+          // F32 — min-h-tap for 44px tap floor on the inline input too.
+          'min-w-[10rem] min-h-tap rounded-full border border-border-default ' +
+          'bg-transparent px-space-3 py-space-1 text-size-sm text-ink-900 ' +
+          'placeholder:text-ink-500 focus-visible:outline-none ' +
+          'focus-visible:shadow-ring-focus disabled:opacity-50'
         }
       />
     </form>

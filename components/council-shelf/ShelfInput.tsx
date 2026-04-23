@@ -82,11 +82,14 @@ export function ShelfInput({
         disabled={disabled}
         autoComplete="off"
         enterKeyHint="send"
+        // F32 — `rounded` (Tailwind default) replaces the previously
+        // undefined `rounded-radius-sm` utility; `min-h-tap` enforces
+        // the 44px mobile tap floor on the input itself.
         className={[
           'flex-1 bg-transparent outline-none',
           'text-size-md font-family-body text-ink-900',
           'placeholder:text-ink-500',
-          'focus-visible:shadow-ring-focus rounded-radius-sm px-space-2 py-space-1',
+          'focus-visible:shadow-ring-focus rounded min-h-tap px-space-2 py-space-1',
           'disabled:opacity-50 disabled:cursor-not-allowed',
         ].join(' ')}
         aria-disabled={disabled}
@@ -94,9 +97,12 @@ export function ShelfInput({
       <button
         type="submit"
         disabled={disabled || value.trim().length === 0}
+        // F32 — inline-flex + min-h-tap for the 44px bar; `rounded`
+        // replaces the undefined `rounded-radius-sm` utility.
         className={[
+          'inline-flex items-center justify-center',
           'text-size-sm font-family-body text-ink-700',
-          'rounded-radius-sm px-space-3 py-space-1',
+          'rounded min-h-tap min-w-tap px-space-3 py-space-1',
           'hover:text-ink-900 focus-visible:shadow-ring-focus',
           'disabled:opacity-50 disabled:cursor-not-allowed',
         ].join(' ')}

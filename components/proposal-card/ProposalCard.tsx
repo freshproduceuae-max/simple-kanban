@@ -144,8 +144,13 @@ export function ProposalCard({
         <button
           type="button"
           onClick={doApprove}
+          // F32 — the terminal tap in the onboarding stopwatch path
+          // (vision §6 / F31). `min-h-tap` + `min-w-tap` guarantee the
+          // 44px mobile hit area the design-system mandates (§6.2)
+          // without loudening the text-led affordance (§8.6).
           className={[
-            'mt-3 inline-flex items-center gap-1 text-sm',
+            'mt-3 inline-flex items-center justify-center gap-1',
+            'min-h-tap min-w-tap text-sm',
             'text-[var(--color-accent-moss-700)] underline underline-offset-4',
             'hover:text-[var(--color-ink-900)] focus-visible:outline-none',
             'focus-visible:ring-[var(--ring-focus)]',
@@ -176,7 +181,13 @@ export function ProposalCard({
           <button
             type="button"
             onClick={() => setState({ kind: 'pending' })}
-            className="text-sm text-[var(--color-accent-moss-700)] underline underline-offset-4"
+            // F32 — 44px tap floor on the recovery path, same contract
+            // as the Approve affordance above.
+            className={[
+              'inline-flex items-center justify-center min-h-tap min-w-tap',
+              'text-sm text-[var(--color-accent-moss-700)]',
+              'underline underline-offset-4',
+            ].join(' ')}
           >
             Try again
           </button>

@@ -101,9 +101,12 @@ export function HowIGotHereReveal({
         aria-controls={panelId}
         data-how-i-got-here-trigger=""
         onClick={() => setOpen((v) => !v)}
+        // F32 — the "How I got here" reveal trigger is a text-led
+        // disclosure; `min-h-tap` raises its hit area to the 44px
+        // mobile floor without loudening the xs-sized label.
         className={[
           'self-start',
-          'rounded-sm',
+          'rounded-sm min-h-tap',
           'text-size-xs font-family-body text-ink-500',
           'underline underline-offset-2 decoration-dotted',
           'transition-colors duration-duration-fast ease-ease-standard',

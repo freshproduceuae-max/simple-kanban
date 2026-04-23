@@ -45,6 +45,9 @@ export function SignInForm({ next = '/' }: { next?: string }) {
       <input type="hidden" name="next" value={next} />
       <label className="block space-y-space-1">
         <span className="text-size-sm text-ink-700">Email</span>
+        {/* F32 — first-touch surface of the entire product. 44px tap
+            floor on both the email field and the submit button so a
+            phone user never mis-taps adjacent chrome. */}
         <input
           type="email"
           name="email"
@@ -52,7 +55,7 @@ export function SignInForm({ next = '/' }: { next?: string }) {
           required
           disabled={pending}
           aria-invalid={result?.ok === false || undefined}
-          className="w-full rounded border border-border-default bg-surface-card px-space-3 py-space-2 text-size-md text-ink-900 outline-none focus:shadow-ring-focus disabled:opacity-60"
+          className="w-full rounded border border-border-default bg-surface-card min-h-tap px-space-3 py-space-2 text-size-md text-ink-900 outline-none focus:shadow-ring-focus disabled:opacity-60"
         />
       </label>
 
@@ -65,7 +68,7 @@ export function SignInForm({ next = '/' }: { next?: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded bg-ink-900 px-space-4 py-space-2 text-size-sm font-weight-medium text-surface-card transition-colors duration-duration-fast ease-ease-standard hover:bg-ink-700 disabled:opacity-60"
+        className="inline-flex w-full items-center justify-center rounded bg-ink-900 min-h-tap px-space-4 py-space-2 text-size-sm font-weight-medium text-surface-card transition-colors duration-duration-fast ease-ease-standard hover:bg-ink-700 disabled:opacity-60"
       >
         {pending ? 'Sending…' : 'Send magic link'}
       </button>

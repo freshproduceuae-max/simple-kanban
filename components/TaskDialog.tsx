@@ -143,12 +143,14 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
         <label htmlFor={titleId} className="block text-size-sm font-weight-medium text-ink-700">
           Title
         </label>
+        {/* F32 — every tap-targetable form field in the dialog clears
+            the 44px mobile floor (design-system §6.2). */}
         <input
           id={titleId}
           ref={firstFieldRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="mb-space-2 w-full rounded border border-border-default bg-surface-card p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
+          className="mb-space-2 w-full rounded border border-border-default bg-surface-card min-h-tap p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
         />
         {error ? (
           <p className="mb-space-2 text-size-sm text-accent-terra-700">{error}</p>
@@ -161,7 +163,10 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
           id={descId}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="mb-space-2 w-full rounded border border-border-default bg-surface-card p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
+          // F32 — three-row default already clears 44px, but the
+          // token makes the guarantee explicit and stays consistent
+          // with the other dialog fields if `rows` ever shrinks.
+          className="mb-space-2 w-full rounded border border-border-default bg-surface-card min-h-tap p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
           rows={3}
         />
 
@@ -173,14 +178,14 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
           type="date"
           value={dueDate}
           onChange={(e) => setDueDate(e.target.value)}
-          className="mb-space-2 w-full rounded border border-border-default bg-surface-card p-space-2 font-family-mono text-ink-900 focus:outline-none focus:shadow-ring-focus"
+          className="mb-space-2 w-full rounded border border-border-default bg-surface-card min-h-tap p-space-2 font-family-mono text-ink-900 focus:outline-none focus:shadow-ring-focus"
         />
 
         <label className="block text-size-sm font-weight-medium text-ink-700">Status</label>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as TaskStatus)}
-          className="mb-space-4 w-full rounded border border-border-default bg-surface-card p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
+          className="mb-space-4 w-full rounded border border-border-default bg-surface-card min-h-tap p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
         >
           <option value="todo">To Do</option>
           <option value="in_progress">In Progress</option>
@@ -188,20 +193,24 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
         </select>
 
         <div className="flex items-center justify-between gap-space-2">
+          {/* F32 — every dialog button carries min-h-tap so the delete
+              / save / close affordances all clear the 44px mobile floor
+              (design-system §6.2). Inline-flex centres the label now
+              that the box stretches vertically. */}
           {existing && onDelete ? (
             confirmDelete ? (
               <div className="flex gap-space-2">
                 <button
                   type="button"
                   onClick={() => onDelete(existing.id)}
-                  className="rounded bg-accent-terra-700 px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card"
+                  className="inline-flex items-center justify-center rounded bg-accent-terra-700 min-h-tap min-w-tap px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card"
                 >
                   Confirm delete
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmDelete(false)}
-                  className="rounded border border-border-default px-space-3 py-space-1 text-size-sm text-ink-700"
+                  className="inline-flex items-center justify-center rounded border border-border-default min-h-tap min-w-tap px-space-3 py-space-1 text-size-sm text-ink-700"
                 >
                   Cancel
                 </button>
@@ -210,7 +219,7 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}
-                className="rounded border border-accent-terra-500 px-space-3 py-space-1 text-size-sm text-accent-terra-700"
+                className="inline-flex items-center justify-center rounded border border-accent-terra-500 min-h-tap min-w-tap px-space-3 py-space-1 text-size-sm text-accent-terra-700"
               >
                 Delete
               </button>
@@ -222,13 +231,13 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded border border-border-default px-space-3 py-space-1 text-size-sm text-ink-700"
+              className="inline-flex items-center justify-center rounded border border-border-default min-h-tap min-w-tap px-space-3 py-space-1 text-size-sm text-ink-700"
             >
               Close
             </button>
             <button
               type="submit"
-              className="rounded bg-ink-900 px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card"
+              className="inline-flex items-center justify-center rounded bg-ink-900 min-h-tap min-w-tap px-space-3 py-space-1 text-size-sm font-weight-medium text-surface-card"
             >
               Save
             </button>
