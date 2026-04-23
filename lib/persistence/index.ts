@@ -9,6 +9,8 @@ export type {
   MemoryRecallRow,
   UserPreferencesRow,
   CouncilMetricRow,
+  AdminErrorEventKind,
+  AdminErrorEventRow,
 } from './types';
 
 export { TaskRepositoryNotImplemented } from './task-repository';
@@ -43,3 +45,7 @@ export { SupabaseUserPreferencesRepository } from './supabase-user-preferences-r
 
 export { MetricsRepositoryNotImplemented } from './metrics-repository';
 export type { MetricsRepository } from './metrics-repository';
+
+export { AdminErrorEventsRepositoryNotImplemented } from './admin-error-events-repository';
+export type { AdminErrorEventsRepository } from './admin-error-events-repository';
+export { SupabaseAdminErrorEventsRepository } from './supabase-admin-error-events-repository';

@@ -6,6 +6,7 @@ import {
   ProposalRepositoryNotImplemented,
   UserPreferencesRepositoryNotImplemented,
   MetricsRepositoryNotImplemented,
+  AdminErrorEventsRepositoryNotImplemented,
 } from '..';
 
 describe('persistence repositories (stubs)', () => {
@@ -39,5 +40,11 @@ describe('persistence repositories (stubs)', () => {
       first_token_ms: null, full_reply_ms: null,
       tokens_in: 0, tokens_out: 0, outcome: 'ok',
     })).rejects.toThrow(/F21/);
+  });
+  it('AdminErrorEventsRepository stub throws with feature-id hint', async () => {
+    const repo = new AdminErrorEventsRepositoryNotImplemented();
+    await expect(
+      repo.record({ user_id: 'u1', kind: 'email_send_failed' }),
+    ).rejects.toThrow(/F27/);
   });
 });

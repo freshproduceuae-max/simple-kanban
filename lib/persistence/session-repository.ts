@@ -65,6 +65,21 @@ export interface SessionRepository {
    * session has no turns yet (greeting / first turn).
    */
   sumSessionTokens(input: { sessionId: string }): Promise<number>;
+  /**
+   * F27 — fetch a batch of sessions by id for the `/admin/metrics`
+   * SLO join. The page collects distinct `session_id` values from
+   * `council_metrics` rows in the window and asks for their modes so
+   * the view-model can split latency percentiles by Council mode
+   * (chat / plan / greeting) to check against PRD §13.3.
+   *
+   * Scoped by `user_id` on top of RLS so a mis-scoped call still
+   * fails loudly. Empty input returns an empty array without a round
+   * trip.
+   */
+  listSessionsByIds(input: {
+    userId: string;
+    sessionIds: string[];
+  }): Promise<CouncilSessionRow[]>;
 }
 
 export class SessionRepositoryNotImplemented implements SessionRepository {
@@ -109,5 +124,11 @@ export class SessionRepositoryNotImplemented implements SessionRepository {
   }
   async sumSessionTokens(_input: { sessionId: string }): Promise<number> {
     throw new Error('SessionRepository: implementation lands with F22');
+  }
+  async listSessionsByIds(_input: {
+    userId: string;
+    sessionIds: string[];
+  }): Promise<CouncilSessionRow[]> {
+    throw new Error('SessionRepository: implementation lands with F27');
   }
 }
