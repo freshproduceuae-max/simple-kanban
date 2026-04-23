@@ -39,6 +39,7 @@ export {
 
 export { UserPreferencesRepositoryNotImplemented } from './user-preferences-repository';
 export type { UserPreferencesRepository } from './user-preferences-repository';
+export { SupabaseUserPreferencesRepository } from './supabase-user-preferences-repository';
 
 export { MetricsRepositoryNotImplemented } from './metrics-repository';
 export type { MetricsRepository } from './metrics-repository';

@@ -43,11 +43,27 @@ import type { MemoryRecallAudit } from '@/lib/council/server/memory-recall-audit
 export type MemoryRecallRevealProps = {
   audit: MemoryRecallAudit;
   /**
-   * Optional test-only override of the initial open state. Not part of
-   * the F24 surface — F25 will add real `defaultOpen` semantics tied
-   * to the user's transparency preference.
+   * Optional test-only override of the initial open state. Kept for
+   * existing F24 tests that pre-open the panel to exercise the panel
+   * markup; the F25 production path uses `defaultOpen`.
    */
   initialOpen?: boolean;
+  /**
+   * F25 — open the reveal by default. Not currently driven by any
+   * transparency mode (PRD §12.3 opens only the "How I got here"
+   * reveal by default under mode D; memory recall stays on-tap), but
+   * the prop matches the sibling `HowIGotHereReveal` API so the two
+   * components have the same F25 surface for future extensions.
+   */
+  defaultOpen?: boolean;
+  /**
+   * F25 — attach a small `[R]` source glyph to the trigger label.
+   * Mode C ("specialists inline") flags every reveal with a glyph
+   * that names its source without changing the voice; the Council
+   * still speaks as one. Defaults to false so non-C modes render as
+   * before.
+   */
+  showSourceGlyph?: boolean;
 };
 
 /**
@@ -96,8 +112,10 @@ export function formatRecallDate(
 export function MemoryRecallReveal({
   audit,
   initialOpen = false,
+  defaultOpen = false,
+  showSourceGlyph = false,
 }: MemoryRecallRevealProps) {
-  const [open, setOpen] = useState(initialOpen);
+  const [open, setOpen] = useState(initialOpen || defaultOpen);
   const panelId = useId();
   const count = audit.recalls.length;
 
@@ -135,8 +153,21 @@ export function MemoryRecallReveal({
           'transition-colors duration-duration-fast ease-ease-standard',
           'hover:text-ink-700',
           'focus-visible:outline-none focus-visible:shadow-ring-focus',
+          'inline-flex items-center gap-space-1',
         ].join(' ')}
       >
+        {showSourceGlyph ? (
+          // Mode C source glyph. `aria-hidden` so screen readers stay
+          // on the label (the panel's per-entry dates already carry
+          // the memory attribution); decorative for sighted users.
+          <span
+            aria-hidden="true"
+            data-memory-recall-glyph="R"
+            className="text-ink-500 not-italic font-weight-medium"
+          >
+            [R]
+          </span>
+        ) : null}
         {open ? `Hide what I remembered (${count})` : `${triggerLabel} (${count})`}
       </button>
       {open ? (

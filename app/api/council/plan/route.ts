@@ -16,11 +16,13 @@ import { resolveSessionId } from '@/lib/council/server/session';
 import { extractPlanFrame } from '@/lib/council/server/plan-extract';
 import { buildCriticAudit } from '@/lib/council/server/critic-audit';
 import { buildMemoryRecallAudit } from '@/lib/council/server/memory-recall-audit';
+import { resolveTransparencyMode } from '@/lib/council/server/transparency';
 import {
   getProposalRepository,
   getSessionRepository,
   getCouncilMemoryRepository,
   getMetricsRepository,
+  getUserPreferencesRepository,
 } from '@/lib/persistence/server';
 
 /**
@@ -87,6 +89,13 @@ export async function POST(request: Request) {
   const sessionRepo = getSessionRepository();
   const memoryRepo = getCouncilMemoryRepository();
   const metricsRepo = getMetricsRepository();
+  const preferencesRepo = getUserPreferencesRepository();
+  // F25 — resolve the transparency pref in parallel with the session
+  // so neither blocks the stream.
+  const transparencyModePromise = resolveTransparencyMode(
+    userId,
+    preferencesRepo,
+  );
   const sessionId = await resolveSessionId({
     userId,
     authSessionId,
@@ -124,12 +133,18 @@ export async function POST(request: Request) {
   // `memoryRecall` fragment whenever the Researcher surfaced prior-
   // session summaries into the system prompt, so the shelf can render
   // the "I remembered from earlier" reveal alongside the Critic one.
+  // F25 attaches the user's resolved transparency mode whenever any
+  // reveal artifact is present; mode A short-circuits the reveal
+  // artifacts server-side (proposals still ship — they're a user-
+  // action affordance, not a reveal, so mode A never suppresses them).
   const trailer = async (): Promise<Record<string, unknown> | null> => {
     const final = await done;
-    const criticAudit = buildCriticAudit(final);
-    const memoryRecall = buildMemoryRecallAudit(
-      final.researcher.recalledSummaries,
-    );
+    const transparencyMode = await transparencyModePromise;
+    const emitReveals = transparencyMode !== 'A';
+    const criticAudit = emitReveals ? buildCriticAudit(final) : null;
+    const memoryRecall = emitReveals
+      ? buildMemoryRecallAudit(final.researcher.recalledSummaries)
+      : null;
     const frame = extractPlanFrame(final.text);
     if (
       frame.tasks.length === 0 &&
@@ -177,6 +192,11 @@ export async function POST(request: Request) {
     if (frame.chips.length > 0) payload.chips = frame.chips;
     if (criticAudit) payload.criticAudit = criticAudit;
     if (memoryRecall) payload.memoryRecall = memoryRecall;
+    // F25 — mode ships alongside reveals so the client renders them
+    // correctly (open-by-default for D, glyphs for C, collapsed for B).
+    // We only include it when a reveal artifact is present, to keep the
+    // wire clean on proposal-only turns.
+    if (criticAudit || memoryRecall) payload.transparencyMode = transparencyMode;
     return Object.keys(payload).length > 0 ? payload : null;
   };
 

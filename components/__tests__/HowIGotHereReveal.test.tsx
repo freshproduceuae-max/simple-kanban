@@ -116,4 +116,39 @@ describe('HowIGotHereReveal', () => {
     render(<HowIGotHereReveal audit={AUDIT} initialOpen />);
     expect(screen.queryByText(/truncated/i)).not.toBeInTheDocument();
   });
+
+  // -------- F25 — defaultOpen + showSourceGlyph --------
+
+  it('F25: defaultOpen expands the panel at mount without needing a click (mode D)', () => {
+    render(<HowIGotHereReveal audit={AUDIT} defaultOpen />);
+    // Trigger reads as "Hide how I got here" when open.
+    expect(
+      screen.getByRole('button', { name: /hide how i got here/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    // Panel content is visible from the first render.
+    expect(screen.getByText(AUDIT.review)).toBeInTheDocument();
+  });
+
+  it('F25: showSourceGlyph renders the [C] glyph inside the trigger (mode C)', () => {
+    render(<HowIGotHereReveal audit={AUDIT} showSourceGlyph />);
+    const glyph = document.querySelector('[data-how-i-got-here-glyph="C"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph?.textContent).toBe('[C]');
+    // Glyph is aria-hidden so screen readers stay on the label.
+    expect(glyph).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('F25: showSourceGlyph is false by default — no glyph for modes A/B/D', () => {
+    render(<HowIGotHereReveal audit={AUDIT} />);
+    expect(
+      document.querySelector('[data-how-i-got-here-glyph]'),
+    ).toBeNull();
+  });
+
+  it('F25: defaultOpen false leaves the reveal collapsed at mount (mode B default path)', () => {
+    render(<HowIGotHereReveal audit={AUDIT} defaultOpen={false} />);
+    expect(
+      screen.getByRole('button', { name: /how i got here/i }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
 });

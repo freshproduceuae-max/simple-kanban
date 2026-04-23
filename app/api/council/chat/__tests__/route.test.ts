@@ -6,6 +6,8 @@ const startSession = vi.fn();
 const writeSummary = vi.fn();
 const endSession = vi.fn();
 const findResumableSession = vi.fn();
+const getForUserPref = vi.fn();
+const upsertPref = vi.fn();
 const REAL_UUID = 'aaaaaaaa-1111-4222-8333-444444444444';
 
 vi.mock('@/lib/auth/current-user', () => ({
@@ -38,6 +40,10 @@ vi.mock('@/lib/persistence/server', () => ({
     record: vi.fn(async () => {}),
     listForUser: vi.fn(async () => []),
     dailyTokenTotalForUser: vi.fn(async () => 0),
+  }),
+  getUserPreferencesRepository: () => ({
+    getForUser: (...a: unknown[]) => getForUserPref(...a),
+    upsert: (...a: unknown[]) => upsertPref(...a),
   }),
 }));
 
@@ -103,6 +109,10 @@ describe('POST /api/council/chat', () => {
     writeSummary.mockReset();
     endSession.mockReset();
     findResumableSession.mockReset();
+    getForUserPref.mockReset();
+    upsertPref.mockReset();
+    // Default: no preference row (new user path) → resolver returns 'B'.
+    getForUserPref.mockResolvedValue(null);
     __resetSessionCacheForTests();
     getAuthedUserId.mockResolvedValue('u1');
     runCouncilTurnMock.mockResolvedValue(fakeTurn());
@@ -291,5 +301,114 @@ describe('POST /api/council/chat', () => {
     const res = await chatRoute(req({ userInput: 'morning' }));
     const body = await res.text();
     expect(body).toBe('ok');
+  });
+
+  // -------- F25: transparency-mode trailer + server-side mode-A suppression --------
+
+  it('F25: attaches transparencyMode=B (default) alongside criticAudit when no pref row exists', async () => {
+    getForUserPref.mockResolvedValueOnce(null);
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('sure.', { ran: true, risk: 'medium', review: 'flagged.' }),
+    );
+    const res = await chatRoute(req({ userInput: 'hi' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.criticAudit).toBeDefined();
+    expect(trailer.transparencyMode).toBe('B');
+  });
+
+  it('F25: passes transparencyMode=C through to the trailer when the user pref is C', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'C',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('sure.', { ran: true, risk: 'medium', review: 'flagged.' }),
+    );
+    const res = await chatRoute(req({ userInput: 'hi' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('C');
+  });
+
+  it('F25: passes transparencyMode=D through to the trailer when the user pref is D', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'D',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'sure.',
+        { ran: true, risk: 'high', review: 'risky.' },
+        [
+          {
+            id: 'sum-1',
+            content: 'prior context',
+            sessionId: 'sess-old',
+            createdAt: '2026-04-20T00:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await chatRoute(req({ userInput: 'hi' }));
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    expect(trailer.transparencyMode).toBe('D');
+    expect(trailer.criticAudit).toBeDefined();
+    expect(trailer.memoryRecall).toBeDefined();
+  });
+
+  it('F25: suppresses reveal artifacts server-side under mode A (no criticAudit, no memoryRecall, no trailer at all)', async () => {
+    getForUserPref.mockResolvedValueOnce({
+      user_id: 'u1',
+      transparency_mode: 'A',
+      created_at: '2026-04-22T00:00:00Z',
+      updated_at: '2026-04-22T00:00:00Z',
+    });
+    // Would-normally-trailer path: Critic ran AND memory fired.
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn(
+        'sure.',
+        { ran: true, risk: 'high', review: 'risky.' },
+        [
+          {
+            id: 'sum-1',
+            content: 'prior context',
+            sessionId: 'sess-old',
+            createdAt: '2026-04-20T00:00:00Z',
+          },
+        ],
+      ),
+    );
+    const res = await chatRoute(req({ userInput: 'hi' }));
+    const body = await res.text();
+    // Mode A strips both reveal artifacts; Chat has no other trailer
+    // fragments, so the body is exactly the streamed text.
+    expect(body).toBe('sure.');
+  });
+
+  it('F25: fail-quiets to B on a preferences repo outage (Supabase wobble does not block the stream)', async () => {
+    getForUserPref.mockRejectedValueOnce(new Error('connection reset'));
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('sure.', { ran: true, risk: 'medium', review: 'flagged.' }),
+    );
+    const res = await chatRoute(req({ userInput: 'hi' }));
+    expect(res.status).toBe(200);
+    const trailer = JSON.parse((await res.text()).split('\n').at(-1) as string);
+    // Default ships: reveals render as normal (the user can still fix
+    // their pref next time they load the settings page).
+    expect(trailer.transparencyMode).toBe('B');
+    expect(trailer.criticAudit).toBeDefined();
+  });
+
+  it('F25: omits transparencyMode when there is no reveal artifact to render (keeps the wire clean)', async () => {
+    // Default preference row, no critic, no memory. Chat has no other
+    // trailer fragments, so the body should carry no trailer line at all
+    // — including no transparencyMode-only line.
+    runCouncilTurnMock.mockResolvedValueOnce(fakeTurn('ok', undefined, []));
+    const res = await chatRoute(req({ userInput: 'morning' }));
+    expect(await res.text()).toBe('ok');
   });
 });
