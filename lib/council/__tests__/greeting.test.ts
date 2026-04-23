@@ -226,6 +226,9 @@ describe('composeFullGreeting (F14)', () => {
   });
 
   it('falls back to the fail sentence when the SDK throws', async () => {
+    // F30: a 429 retries through the backoff schedule before
+    // surfacing. Inject a zero-sleep so the test doesn't wait real
+    // wall-clock for the ~30s budget to exhaust.
     const client = {
       messages: {
         create: vi.fn().mockRejectedValue(new Error('429 rate limit')),
@@ -233,7 +236,7 @@ describe('composeFullGreeting (F14)', () => {
     } as unknown as AnthropicLike;
     const { stream, done } = await composeFullGreeting(
       { userId: 'u1', signals },
-      { client, memoryRepo: memoryRepo() },
+      { client, memoryRepo: memoryRepo(), retrySleep: async () => {} },
     );
     const received: string[] = [];
     for await (const c of stream) received.push(c);

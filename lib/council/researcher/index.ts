@@ -8,6 +8,7 @@ import type { MetricsRepository } from '@/lib/persistence/metrics-repository';
 import type { SessionRepository } from '@/lib/persistence/session-repository';
 import { COUNCIL_MODEL, getAnthropicClient, type AnthropicLike } from '../shared/client';
 import { classifyOutcome, recordMetric } from '../shared/instrument';
+import { retryOn429, type SoftPauseInfo } from '../shared/retry-on-429';
 
 /**
  * F09 — Researcher agent.
@@ -79,6 +80,20 @@ export type ResearcherDeps = {
     message: string;
     cause?: unknown;
   }) => void;
+  /**
+   * F30 — fires when the Anthropic call is 429'd and we're about to
+   * sleep before a retry. Dispatch wires this into the soft-pause meta
+   * frame stream so the shelf can render a countdown indicator. The
+   * Researcher only invokes the hook when one is supplied; no-op when
+   * omitted so standalone tests don't need a stub.
+   */
+  onSoftPause?: (info: SoftPauseInfo) => void;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep so unit tests
+   * don't wait real wall-clock between backoff attempts. Production
+   * leaves this unset and the default `setTimeout` sleep is used.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   /** Optional logger (defaults to console.error on failure path). */
   log?: (msg: string, err: unknown) => void;
 };
@@ -224,13 +239,20 @@ export async function research(
       ? T
       : never;
 
-    const response = await client.messages.create({
-      model: COUNCIL_MODEL,
-      max_tokens: 1024,
-      system: `You are the Council's research agent, backstage. Return a compact plain-prose finding for the Consolidator.\nMemory summaries:\n${memoryBlock}`,
-      messages: [{ role: 'user', content: buildPrompt(input) }],
-      // Web tool is only attached in Plan mode.
-      ...(input.webEnabled ? { tools: [webTool] } : {}),
+    const response = await retryOn429({
+      attempt: () =>
+        client.messages.create({
+          model: COUNCIL_MODEL,
+          max_tokens: 1024,
+          system: `You are the Council's research agent, backstage. Return a compact plain-prose finding for the Consolidator.\nMemory summaries:\n${memoryBlock}`,
+          messages: [{ role: 'user', content: buildPrompt(input) }],
+          // Web tool is only attached in Plan mode.
+          ...(input.webEnabled ? { tools: [webTool] } : {}),
+        }),
+      onBackoff: (info) => {
+        deps.onSoftPause?.(info);
+      },
+      sleep: deps.retrySleep,
     });
 
     const text = extractText(response);

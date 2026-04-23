@@ -10,6 +10,8 @@ import { checkBudget, type BudgetCheckResult } from '@/lib/council/shared/budget
 import { reportAgentError } from '@/lib/council/errors/email';
 import { invalidateSessionCacheBySessionId } from '@/lib/council/server/session';
 import { truncateRecallSnippet } from '@/lib/council/server/memory-recall-audit';
+import { encodeSoftPauseFrame } from '@/lib/council/shared/soft-pause-frame';
+import type { SoftPauseInfo } from '@/lib/council/shared/retry-on-429';
 
 /**
  * F15/F16/F17 — shared Council-turn orchestrator.
@@ -66,6 +68,12 @@ export type RunCouncilTurnDeps = {
   memoryRepo: CouncilMemoryRepository;
   /** F21 — optional metrics repo; when present, agents emit per-call rows. */
   metricsRepo?: MetricsRepository;
+  /**
+   * F30 — test hook. Overrides the retry wrapper's sleep inside every
+   * agent so unit tests don't wait real wall-clock between backoff
+   * attempts. Production leaves this unset.
+   */
+  retrySleep?: (ms: number) => Promise<void>;
   log?: (msg: string, err: unknown) => void;
 };
 
@@ -99,6 +107,20 @@ export async function runCouncilTurn(
   deps: RunCouncilTurnDeps,
 ): Promise<RunCouncilTurnResult> {
   const log = deps.log ?? ((msg, err) => console.error(msg, err));
+
+  // F30 — soft-pause frame buffer. Every 429 backoff from the
+  // Researcher or Consolidator pushes a `__council_meta__:{...}\n` line
+  // here. We flush this buffer at the HEAD of the user-visible stream
+  // so the shelf can render a "rate-limited, retrying in Ns" indicator
+  // BEFORE any Consolidator tokens arrive. All relevant retries
+  // complete before the Consolidator stream starts iterating (the
+  // `retryOn429` wrapper awaits its sleep inside the call chain) so
+  // the buffer is guaranteed to be fully populated by the time the
+  // stream is drained.
+  const softPauseFrames: string[] = [];
+  const collectSoftPause = (info: SoftPauseInfo) => {
+    softPauseFrames.push(encodeSoftPauseFrame(info));
+  };
 
   // 0. Pre-flight budget check (F22). A 'cut' verdict short-circuits
   //    the entire turn: no Researcher, no Consolidator, no Critic —
@@ -216,6 +238,8 @@ export async function runCouncilTurn(
         sessionRepo: deps.sessionRepo,
         memoryRepo: deps.memoryRepo,
         metricsRepo: deps.metricsRepo,
+        onSoftPause: collectSoftPause,
+        retrySleep: deps.retrySleep,
         errorHook: ({ failureClass, message, cause }) => {
           void reportAgentError(
             {
@@ -269,6 +293,8 @@ export async function runCouncilTurn(
         sessionRepo: deps.sessionRepo,
         memoryRepo: deps.memoryRepo,
         metricsRepo: deps.metricsRepo,
+        onSoftPause: collectSoftPause,
+        retrySleep: deps.retrySleep,
         errorHook: ({ failureClass, message, cause }) => {
           void reportAgentError(
             {
@@ -293,6 +319,15 @@ export async function runCouncilTurn(
   // 3. Post-stream critic. We chain it onto the consolidator's own
   //    `done` promise so the Critic never starts before the final
   //    draft exists. `forceCritic` maps to the critic's `force` flag.
+  //
+  //    F30 note: we deliberately do NOT pass `onSoftPause:
+  //    collectSoftPause` here. `softPauseFrames` flushes at the HEAD of
+  //    the user-visible stream — by the time a Critic 429 fires, the
+  //    Consolidator stream has already started and any late push to
+  //    the buffer would be invisible to the client. Critic 429s still
+  //    fire the `errorHook` below, which surfaces to the Resend pipe
+  //    for server-side observability. See the docstring on
+  //    `CriticDeps.onSoftPause` for details.
   const criticPromise: Promise<CriticResult> = consolidator.done.then(
     async ({ text }) => {
       try {
@@ -307,6 +342,7 @@ export async function runCouncilTurn(
             client: deps.client,
             sessionRepo: deps.sessionRepo,
             metricsRepo: deps.metricsRepo,
+            retrySleep: deps.retrySleep,
             errorHook: ({ failureClass, message, cause }) => {
               void reportAgentError(
                 {
@@ -403,23 +439,35 @@ export async function runCouncilTurn(
     };
   })();
 
-  // When a warn banner is present, prepend it once at the top of the
-  // user-visible stream. The banner goes out before any Consolidator
-  // chunk so the user sees the ceiling warning first.
-  const stream: AsyncIterable<string> = warnBanner
-    ? prependBanner(warnBanner, consolidator.stream)
-    : consolidator.stream;
+  // Prepend, in order:
+  //   1. F30 soft-pause meta frames (each one line ending in `\n`).
+  //      These go out BEFORE the banner because they describe the
+  //      reason the banner/text is arriving slowly — the shelf peels
+  //      them off the wire before anything is shown.
+  //   2. F22 warn banner (a user-visible sentence).
+  //   3. Consolidator tokens.
+  //
+  // When no 429 ever fired, softPauseFrames is empty and the prefix
+  // collapses to just the banner (or nothing) — zero overhead on the
+  // happy path.
+  const stream: AsyncIterable<string> = prependFixedPrefix(
+    softPauseFrames,
+    warnBanner,
+    consolidator.stream,
+  );
 
   return { stream, done };
 }
 
-function prependBanner(
-  banner: string,
+function prependFixedPrefix(
+  metaFrames: readonly string[],
+  banner: string | null,
   inner: AsyncIterable<string>,
 ): AsyncIterable<string> {
   return {
     async *[Symbol.asyncIterator]() {
-      yield `${banner}\n\n`;
+      for (const frame of metaFrames) yield frame;
+      if (banner) yield `${banner}\n\n`;
       for await (const chunk of inner) yield chunk;
     },
   };

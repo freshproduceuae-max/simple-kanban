@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CouncilSessionShelf } from '@/components/council-shelf/CouncilSessionShelf';
+import { encodeSoftPauseFrame } from '@/lib/council/shared/soft-pause-frame';
 
 /**
  * F22a — CouncilSessionShelf contract.
@@ -933,5 +934,77 @@ describe('CouncilSessionShelf', () => {
     release();
     await waitFor(() => expect(field).not.toBeDisabled());
     expect(calls).toHaveLength(2);
+  });
+
+  it('renders a soft-pause note when the response leads with F30 meta frames', async () => {
+    // F30 wire: the server emits one or more
+    // `__council_meta__:{"type":"soft-pause",...}\n` lines at the HEAD
+    // of the body before any Consolidator token. The shelf accumulates
+    // those into a single muted note above the turn body.
+    const user = userEvent.setup();
+    const leader =
+      encodeSoftPauseFrame({ attemptNumber: 1, retrySeconds: 1 }) +
+      encodeSoftPauseFrame({ attemptNumber: 2, retrySeconds: 2 });
+    const { impl } = recordFetch([
+      () => streamingResponse([leader, 'here you go.']),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hello',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/here you go/)).toBeInTheDocument(),
+    );
+
+    const note = screen.getByText(/Rate-limited — retried 2× after 3s\./i);
+    expect(note).toBeInTheDocument();
+    expect(note).toHaveAttribute('data-turn-soft-pause', '');
+    expect(note).toHaveAttribute('data-soft-pause-attempts', '2');
+    expect(note).toHaveAttribute('data-soft-pause-total-seconds', '3');
+  });
+
+  it('does not render a soft-pause note when no meta frames arrive', async () => {
+    const user = userEvent.setup();
+    const { impl } = recordFetch([
+      () => streamingResponse(['plain reply.']),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} greetingOnMount={false} />);
+    await user.type(
+      screen.getByLabelText(/message to the council/i),
+      'hello',
+    );
+    await user.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/plain reply/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Rate-limited/i)).toBeNull();
+  });
+
+  it('renders a soft-pause note on the greeting turn when the greeting was throttled', async () => {
+    // Greetings run through the same retry primitive; the full-greeting
+    // response body can carry meta frames too. The shelf should surface
+    // them on the greeting turn so the user sees why the opening reply
+    // felt slower than it usually does.
+    const leader = encodeSoftPauseFrame({
+      attemptNumber: 1,
+      retrySeconds: 2,
+    });
+    const { impl } = recordFetch([
+      () =>
+        streamingResponse([leader, 'morning.'], {
+          'x-greeting-kind': 'full',
+        }),
+    ]);
+    render(<CouncilSessionShelf fetchImpl={impl} />);
+    await waitFor(() =>
+      expect(screen.getByText(/morning\./)).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/Rate-limited — retried after 2s\./i),
+    ).toBeInTheDocument();
   });
 });
