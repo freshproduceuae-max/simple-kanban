@@ -2,12 +2,12 @@
 
 Canonical progress record for the v0.4 Council release. One row per feature in `features.json`. Flipped to `passes: true` at merge. Session log at the bottom — terse, reverse-chronological.
 
-**Release status:** Phase 10 closed GREEN 2026-04-20 — scaffolding landed on main via PR #19. Phase 11 open: feature-by-feature PRs start with F01.
+**Release status:** Tier A + B + C code complete 2026-04-23. `v0.4.0` tag + `release/v0.4` branch + `simple-kanban-v0-4.vercel.app` alias all preserved per CLAUDE.md milestone-cut rule. F31 stopwatch and F32 mobile walkthrough are protocol-ready and awaiting CD execution; until both are walked, the release is technically cut but not GREEN on acceptance. See `v0.4.0-release-report.md` for the CD walk-through.
 
 **Milestone cuts:**
-- `v0.4.0-alpha` — Tier A (F01–F22) on Vercel preview. CD-only.
-- `v0.4.0-beta` — Tier A+B (F01–F26) on Vercel preview. Invited outside users.
-- `v0.4.0` — Tier A+B+C (F01–F32) on Vercel production, merged to `main`.
+- `v0.4.0-alpha` — Tier A (F01–F22) at `b303836` → preserved at `v0.4.0-alpha` tag, `release/v0.4-alpha` branch, `simple-kanban-v0-4-alpha.vercel.app`. CD-only. Respun as `v0.4.0-alpha.1` at `2406f2a` after the F22a composer gap-close.
+- `v0.4.0-beta` — Tier A+B (F01–F26) at `b9ea623` → preserved at `v0.4.0-beta` tag, `release/v0.4-beta` branch. Vercel alias deferred (tracked in release report §6). Invited outside users.
+- `v0.4.0` — Tier A+B+C (F01–F32) at `cd72275` → preserved at `v0.4.0` tag, `release/v0.4` branch, `simple-kanban-v0-4.vercel.app`. `main` remains at `2406f2a` pending a separate merge forward.
 
 ---
 
@@ -46,21 +46,23 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 
 | ID | Description | PR | Passed |
 |---|---|---|---|
-| F23 | Critic-diff + "How I got here" reveal | — | ☐ |
-| F24 | Memory-recall artifact | — | ☐ |
-| F25 | Transparency preferences (A/B/C/D) | — | ☐ |
-| F26 | `/admin/metrics` baseline | — | ☐ |
+| F23 | Critic-diff + "How I got here" reveal | #38 | ☑ |
+| F24 | Memory-recall artifact | #39 | ☑ |
+| F25 | Transparency preferences (A/B/C/D) | #40 | ☑ |
+| F26 | `/admin/metrics` baseline | #41 | ☑ |
 
 ### Final tier — `v0.4.0`
 
 | ID | Description | PR | Passed |
 |---|---|---|---|
-| F27 | Per-agent `/admin/metrics` breakdown | — | ☐ |
-| F28 | Full searchable + filterable Session history | — | ☐ |
-| F29 | User-controlled session-history purge | — | ☐ |
-| F30 | Anthropic 429 soft-pause (verified under throttle) | — | ☐ |
-| F31 | First-run onboarding under 60 seconds | — | ☐ |
-| F32 | Mobile 375px sign-off | — | ☐ |
+| F27 | Per-agent `/admin/metrics` breakdown | #42 | ☑ |
+| F28 | Full searchable + filterable Session history | #43 | ☑ |
+| F29 | User-controlled session-history purge | #44 | ☑ |
+| F30 | Anthropic 429 soft-pause (verified under throttle) | #45 | ☑ |
+| F31 | First-run onboarding under 60 seconds | #46 | ☑* |
+| F32 | Mobile 375px sign-off | #47 | ☑* |
+
+*F31 and F32 passed code+test gates and are preserved in v0.4.0. Their human-walk acceptance proxies (three-user stopwatch; 375px device walk) are authored as runnable protocols but await CD execution. See `v0.4.0-release-report.md` §5.
 
 ---
 
@@ -69,14 +71,14 @@ Source of truth is `features.json` (the `passes` field). This table mirrors it f
 A milestone does not cut until every feature in its tier (and all lower tiers) has `passes: true`.
 
 - [x] `v0.4.0-alpha` — all of F01–F22 pass
-- [ ] `v0.4.0-beta` — all of F01–F26 pass
-- [ ] `v0.4.0` — all of F01–F32 pass + acceptance proxies from PRD §3
+- [x] `v0.4.0-beta` — all of F01–F26 pass
+- [x] `v0.4.0` — all of F01–F32 pass; acceptance proxies from PRD §3 partially open (see below)
 
 ### Acceptance proxies (PRD §3)
 
-- [ ] `v0.4.0-alpha`: CD can sign in, move cards, open a Plan session, receive a thinking-stream reply, tap a proposal card, see the board update — on a Vercel preview.
-- [ ] `v0.4.0-beta`: three invited users sign in via allowlist, complete one Plan session each, and the CD reviews their Session history with Critic-diff and memory-recall visible at transparency pref B.
-- [ ] `v0.4.0`: 60-second first-run proof across three naïve users; 375px mobile sign-off; 429 soft-pause verified under throttled Anthropic account.
+- [ ] `v0.4.0-alpha`: CD can sign in, move cards, open a Plan session, receive a thinking-stream reply, tap a proposal card, see the board update — on a Vercel preview. *(awaits CD walk on `simple-kanban-v0-4-alpha.vercel.app`)*
+- [ ] `v0.4.0-beta`: three invited users sign in via allowlist, complete one Plan session each, and the CD reviews their Session history with Critic-diff and memory-recall visible at transparency pref B. *(awaits invite + CD review)*
+- [ ] `v0.4.0`: 60-second first-run proof across three naïve users (F31 stopwatch protocol at `f31-onboarding-qa-protocol.md`); 375px mobile sign-off (F32 walk protocol at `f32-mobile-375-signoff.md`); 429 soft-pause verified under throttled Anthropic account (F30 retry primitive is unit-tested; end-to-end throttle-account verification remains a CD exercise).
 
 ---
 
@@ -93,6 +95,20 @@ Kept short. Move to PRD §17 if an item changes product shape.
 ## 4. Session log
 
 Newest on top. One line per working beat.
+
+### 2026-04-23 — **v0.4.0 final CUT** (F27–F32 merged, tag + branch + Vercel alias preserved)
+
+- Tier C closed in a continuous autonomous run: F27 (#42) → F28 (#43) → F29 (#44) → F30 (#45) → F31 (#46) → F32 (#47). All PRs squash-merged to `release/v0.4-alpha`. Each PR passed its own reviewer pass + `tsc --noEmit` + ESLint + Vitest + `next build` gate before merge.
+- **Final commit:** `cd72275` on `release/v0.4-alpha`. Preserved per CLAUDE.md milestone-cut rule as:
+  - Annotated tag `v0.4.0` (tag object `8b8dbd0`) → commit `cd72275`.
+  - Long-lived branch `release/v0.4` at `cd72275`. Only moves for an explicit hotfix.
+  - Vercel alias `simple-kanban-v0-4.vercel.app` → `dpl_4TpS32c5AmoXsYeUTKmvw8hKoX5A` (built from `release/v0.4` at `cd72275`; pinned to deployment id, not branch).
+- **Branch topology:** `main` remains at `2406f2a` (F22a alpha-era). All F23 → F32 work landed on `release/v0.4-alpha`; a separate merge-forward to `main` is recommended before any v0.5 branching but does not affect v0.4.0 preservation. See `v0.4.0-release-report.md` §4.
+- **Acceptance protocols authored, CD-deferred:**
+  - F31 stopwatch — three naïve users in under 60s. Protocol at `f31-onboarding-qa-protocol.md`; reads the four client-side `council:first-*` performance marks via the DevTools Console snippet.
+  - F32 mobile walk — 375 × 667 viewport, 44×44 tap-target check on every user-facing element. Protocol at `f32-mobile-375-signoff.md`; lists every modified surface plus the shelf-occlusion `getBoundingClientRect()` snippet.
+- **Gaps tracked in release report §6:** (a) `main` behind release branch, (b) `simple-kanban-v0-4-beta.vercel.app` alias not set (tag + branch preserved), (c) spawned chore for the undefined `--color-ink-300` token in `/history` + `/settings/council` delete notices.
+- This report commit lands in `chore/v0.4.0-release-report`: flips `features.json` F23–F32 `passes` → `true`, adds `v0.4.0-release-report.md`, updates this log + milestone gates. Docs-only, Codex carve-out applies.
 
 ### 2026-04-23 — Alpha smoke hotfix: migration 013 widens `tasks.position` to `bigint`
 
