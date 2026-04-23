@@ -9,6 +9,7 @@ export const maxDuration = 60;
 import { runCouncilTurn } from '@/lib/council/server/dispatch';
 import { streamCouncilReply } from '@/lib/council/server/stream-response';
 import { resolveSessionId } from '@/lib/council/server/session';
+import { buildCriticAudit } from '@/lib/council/server/critic-audit';
 import { userRequestedWeb } from '@/lib/council/shared/web-request';
 import {
   getSessionRepository,
@@ -105,7 +106,25 @@ export async function POST(request: Request) {
     },
   );
 
-  const res = streamCouncilReply({ chunks: stream, done, mode: 'chat' });
+  // F23 — the Chat route has no structured trailer of its own, but it
+  // still carries the Critic audit when the Critic fired on the draft.
+  // Emitting an empty trailer on below-threshold turns would be a net
+  // loss (adds a stray newline to the body for zero benefit), so the
+  // helper returns `null` and the wrapper skips the line entirely when
+  // the Critic didn't run.
+  const trailer = async (): Promise<Record<string, unknown> | null> => {
+    const final = await done;
+    const criticAudit = buildCriticAudit(final);
+    if (!criticAudit) return null;
+    return { criticAudit };
+  };
+
+  const res = streamCouncilReply({
+    chunks: stream,
+    done,
+    mode: 'chat',
+    trailer,
+  });
   res.headers.set('x-council-session-id', sessionId);
   return res;
 }

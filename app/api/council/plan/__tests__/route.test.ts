@@ -60,18 +60,36 @@ function req(body: unknown): Request {
  * A fake consolidator turn. The final `done.text` can embed a json-plan
  * fence the route extracts. `streamText` is what the user sees.
  */
-function fakeTurn(opts?: { streamText?: string; finalText?: string }) {
+function fakeTurn(opts?: {
+  streamText?: string;
+  finalText?: string;
+  critic?: {
+    ran: boolean;
+    risk?: 'low' | 'medium' | 'high';
+    review?: string | null;
+  };
+}) {
   const streamText = opts?.streamText ?? 'here is the plan…';
   const finalText = opts?.finalText ?? streamText;
+  const critic = opts?.critic
+    ? {
+        ran: opts.critic.ran,
+        risk: opts.critic.risk ?? 'low',
+        review: opts.critic.review ?? null,
+        tokensIn: 0,
+        tokensOut: 0,
+      }
+    : { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 };
   return {
     stream: (async function* () {
       yield streamText;
     })(),
     done: Promise.resolve({
       text: finalText,
+      preCriticText: finalText,
       mode: 'plan',
       researcher: { ok: true, text: '', toolCalls: [], tokensIn: 0, tokensOut: 0 },
-      critic: { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
+      critic,
     }),
   };
 }
@@ -266,5 +284,64 @@ describe('POST /api/council/plan', () => {
     await planRoute(req({ sessionId: clientId, userInput: 'plan' }));
     expect(runCouncilTurnMock.mock.calls[0][0].sessionId).toBe(clientId);
     expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('F23: includes a criticAudit fragment when the Critic ran', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        critic: {
+          ran: true,
+          risk: 'medium',
+          review: 'I would soften the Thursday commitment.',
+        },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.criticAudit).toEqual({
+      risk: 'medium',
+      review: 'I would soften the Thursday commitment.',
+      preDraft: '```json-plan\n{"tasks":["t1"]}\n```',
+    });
+  });
+
+  it('F23: omits criticAudit when the Critic did not run (below-threshold fast path)', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: '```json-plan\n{"tasks":["t1"]}\n```',
+        // default critic.ran === false
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan' }));
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.criticAudit).toBeUndefined();
+    // The proposals fragment still ships.
+    expect(trailer.proposals).toHaveLength(1);
+  });
+
+  it('F23: emits a criticAudit-only trailer on turns with no proposals and no chips', async () => {
+    // Conversational Plan replies (e.g., "yes I can draft that, what's
+    // the scope?") produce no tasks/chips but should still reveal the
+    // Critic audit when forceCritic fires.
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn({
+        finalText: 'I can draft this — tell me the scope.',
+        critic: {
+          ran: true,
+          risk: 'low',
+          review: 'Nothing to flag.',
+        },
+      }),
+    );
+    const res = await planRoute(req({ userInput: 'plan?' }));
+    const body = await res.text();
+    const lines = body.split('\n');
+    const trailer = JSON.parse(lines.at(-1) as string);
+    expect(trailer.criticAudit.review).toBe('Nothing to flag.');
+    expect(trailer.proposals).toBeUndefined();
+    expect(trailer.chips).toBeUndefined();
   });
 });

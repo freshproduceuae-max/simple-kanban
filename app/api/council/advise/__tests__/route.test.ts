@@ -56,16 +56,32 @@ function req(body: unknown): Request {
   });
 }
 
-function fakeTurn(text = 'advise reply') {
+function fakeTurn(
+  text = 'advise reply',
+  critic?: {
+    ran: boolean;
+    risk?: 'low' | 'medium' | 'high';
+    review?: string | null;
+  },
+) {
   return {
     stream: (async function* () {
       yield text;
     })(),
     done: Promise.resolve({
       text,
+      preCriticText: text,
       mode: 'advise',
       researcher: { ok: true, text: '', toolCalls: [], tokensIn: 0, tokensOut: 0 },
-      critic: { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
+      critic: critic
+        ? {
+            ran: critic.ran,
+            risk: critic.risk ?? 'low',
+            review: critic.review ?? null,
+            tokensIn: 0,
+            tokensOut: 0,
+          }
+        : { ran: false, risk: 'low', review: null, tokensIn: 0, tokensOut: 0 },
     }),
   };
 }
@@ -230,5 +246,50 @@ describe('POST /api/council/advise', () => {
     );
     expect(res.headers.get('x-council-session-id')).toBe(clientId);
     expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('F23: merges criticAudit into the handoff trailer when both apply', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('let me draft that for you.', {
+        ran: true,
+        risk: 'high',
+        review: 'The draft glosses over the dependency on the vendor SLA.',
+      }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'please draft this for me' }),
+    );
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer.handoff).toBe('plan');
+    expect(trailer.criticAudit).toEqual({
+      risk: 'high',
+      review: 'The draft glosses over the dependency on the vendor SLA.',
+      preDraft: 'let me draft that for you.',
+    });
+  });
+
+  it('F23: emits a criticAudit-only trailer when the Critic runs without a handoff', async () => {
+    runCouncilTurnMock.mockResolvedValueOnce(
+      fakeTurn('here is how I see the board.', {
+        ran: true,
+        risk: 'low',
+        review: 'Nothing to tone down.',
+      }),
+    );
+    const res = await adviseRoute(
+      req({ userInput: 'how does this board look?' }),
+    );
+    // No handoff phrase → no x-council-has-proposals header.
+    expect(res.headers.get('x-council-has-proposals')).toBeNull();
+    const body = await res.text();
+    const trailer = JSON.parse(body.split('\n').at(-1) as string);
+    expect(trailer).toEqual({
+      criticAudit: {
+        risk: 'low',
+        review: 'Nothing to tone down.',
+        preDraft: 'here is how I see the board.',
+      },
+    });
   });
 });
