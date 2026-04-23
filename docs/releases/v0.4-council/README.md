@@ -1,7 +1,8 @@
 # v0.4 — Multi-Agent Research Council
 
-**Status:** Planning (Phase 02 Vision interview in progress).
-**Branch when execution starts:** `feat/v0.4-research-council`.
+**Status:** Machine-side close-out **complete** 2026-04-24. F01–F32 all pass code + test gates, `release/v0.4-alpha` is merged to `main`, `cd72275` is on Vercel Production, the `v0.4.0` tag is on `main`, and `simple-kanban-v0-4.vercel.app` is pinned to the production deployment id. Three CD-side acceptance proxies (F30 throttle / F31 stopwatch / F32 375px walk) remain open. Full narrative in [`v0.4.0-release-report.md`](./v0.4.0-release-report.md).
+
+**Long-lived release branches:** `release/v0.4` (final, immutable pointer at `cd72275`), `release/v0.4-beta` (at `b9ea623`), `release/v0.4-alpha` (at `cd72275`, effectively equal to `release/v0.4` after the merge-forward).
 
 ## One-line scope
 
@@ -10,7 +11,7 @@ the Kanban board, runs in three modes (**Plan / Advise / Chat**), reads
 the board but never writes without a user tap, and grows a
 user-specific voice memory over time.
 
-## What is in
+## What shipped
 
 - Three-agent Council: **Researcher**, **Consolidator**, **Critic**.
   Rolled up to the user as one voice.
@@ -22,8 +23,18 @@ user-specific voice memory over time.
 - Council **Write Gate**: no board side-effect without an explicit user
   tap on a proposal card.
 - Persistent Consolidator memory (modes used, session summaries,
-  emotional / individual context, the user's own spoken wisdom).
-  Storage tech chosen in Phase 05.
+  emotional / individual context, the user's own spoken wisdom) on
+  Supabase via `lib/persistence/**`.
+- Per-user transparency preferences (A/B/C/D) at `/settings/council`.
+- `/admin/metrics` — SLO pass/fail, per-agent p50/p95 histograms,
+  error-email failure counter.
+- `/history` — full-text search, filters, keyset pagination;
+  per-session + full-purge controls.
+- Anthropic 429 soft-pause primitive + meta-frame protocol + shelf
+  indicator.
+- First-run onboarding tightened + stopwatch beacons for the
+  60-second KPI.
+- 44px mobile tap-target bar codified as a Tailwind semantic token.
 
 ## What is out (deferred to later releases)
 
@@ -37,18 +48,25 @@ user-specific voice memory over time.
 ## Inherited locks (from v0.1.0, still in force)
 
 - Three fixed columns (`todo`, `in_progress`, `done`).
-- Mobile-first; 3-column Kanban width is sacred.
+- Mobile-first; 3-column Kanban width is sacred at 375px.
 - API keys are server-only. Never `NEXT_PUBLIC_*` for AI vars.
-- PR workflow; Codex is blocking reviewer.
+- PR workflow; Codex is blocking reviewer for code PRs; docs-only PRs
+  under the carve-out (Phase 01) ship after CD review.
 
 ## Retired for v0.4 only
 
 - "No backend DB" — partially retired, scoped to the Consolidator's
-  persistent memory. Not a general permission to store arbitrary
-  server-side state.
+  persistent memory + board state. Not a general permission to store
+  arbitrary server-side state.
 
-## Agent roster (TBD — pending Creative Director sign-off)
+## Files in this folder
 
-Four agents will work in parallel inside this release. Split options
-are proposed in the Phase 02 tracking note and will be locked before
-Phase 07 (PRD) opens.
+- `prd.md` — release-scoped requirements (canonical).
+- `features.json` — 32 features; `passes: true` on all.
+- `progress.md` — canonical progress ledger + session log.
+- `v0.4.0-release-report.md` — CD-facing close-out narrative.
+- `f31-onboarding-qa-protocol.md` — three-naïve-user 60-second stopwatch walk.
+- `f32-mobile-375-signoff.md` — iPhone SE / 375×667 tap-target walk.
+- `plans/` — per-task implementation plans (Phase 11 artifacts).
+- `scaffolding-plan.md` — the one-shot scaffolding plan that landed Phase 10.
+- `features-README.md` — feature-list authoring notes.
