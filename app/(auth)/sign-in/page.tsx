@@ -1,6 +1,8 @@
+import { redirect } from 'next/navigation';
 import { SignInForm } from './sign-in-form';
 import { safeNext } from '@/lib/auth/safe-next';
 import { signInErrorMessage } from '@/lib/auth/sign-in-error';
+import { isDemoModeEnabled } from '@/lib/supabase/demo-user';
 
 /**
  * F03 — magic-link sign-in page.
@@ -11,6 +13,12 @@ import { signInErrorMessage } from '@/lib/auth/sign-in-error';
  * Reads `?next=<path>` (attached by middleware on a protected-route
  * redirect) and forwards the sanitized value to the form so the magic
  * link's callback URL preserves it end-to-end.
+ *
+ * Demo mode (`DEMO_MODE_SHARED_USER=1`): the middleware auto-signs
+ * every visitor in as the shared demo user, so the magic-link form
+ * is unreachable in practice. This route-level redirect is the
+ * defense-in-depth belt: if a direct link to `/sign-in` is followed
+ * while demo mode is on, the request bounces straight to `/`.
  */
 export const metadata = {
   title: 'Sign in · Plan',
@@ -21,6 +29,10 @@ export default function SignInPage({
 }: {
   searchParams?: { next?: string | string[]; error?: string | string[] };
 }) {
+  if (isDemoModeEnabled()) {
+    redirect('/');
+  }
+
   const rawNext = searchParams?.next;
   const next = safeNext(Array.isArray(rawNext) ? rawNext[0] : rawNext);
 
