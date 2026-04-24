@@ -24,7 +24,10 @@ import { createServiceClient } from '@/lib/supabase/service';
 const DEMO_EMAIL_FALLBACK = 'demo@plan.app';
 
 export function isDemoModeEnabled(): boolean {
-  return process.env.DEMO_MODE_SHARED_USER === '1';
+  // Trim: piping `echo "1" | vercel env add` lands a trailing newline in
+  // the encrypted value, so a strict `=== '1'` check silently disables
+  // the entire demo flow. Be defensive.
+  return process.env.DEMO_MODE_SHARED_USER?.trim() === '1';
 }
 
 function getDemoCredentials(): { email: string; password: string } | null {
