@@ -9,7 +9,7 @@
  * behind auth. The exact shape of public/private is unit-tested so
  * drift surfaces in CI, not at runtime.
  */
-const PUBLIC_PATHS = new Set<string>(['/sign-in', '/auth/callback', '/api/demo-debug']);
+const PUBLIC_PATHS = new Set<string>(['/sign-in', '/auth/callback']);
 
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
