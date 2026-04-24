@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createServerClient as createSsrClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServerClient } from '@/lib/supabase/server';
 
 /**
  * TEMPORARY diagnostic route — DELETE after the demo-mode sign-in is
  * verified. Reports whether the demo-mode env vars are reaching the
- * runtime and whether signInWithPassword / admin.createUser succeed.
+ * runtime and whether signInWithPassword succeeds.
  */
 
 export const runtime = 'nodejs';
@@ -23,21 +22,13 @@ export async function GET() {
   };
 
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
     const email = process.env.DEMO_USER_EMAIL || 'demo@plan.app';
     const password = process.env.DEMO_USER_PASSWORD;
     if (!password) {
       report.step = 'no-password';
       return NextResponse.json(report);
     }
-    const store = cookies();
-    const supabase = createSsrClient(url, anonKey, {
-      cookies: {
-        getAll() { return store.getAll(); },
-        setAll() { /* no-op for diagnostic */ },
-      },
-    });
+    const supabase = createServerClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     report.signInOk = !error && Boolean(data.session);
     report.signInErrorMessage = error?.message ?? null;
