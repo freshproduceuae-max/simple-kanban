@@ -141,7 +141,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         <p
           className={`mt-4 rounded border px-3 py-2 text-sm ${
             deleteNotice.kind === 'success'
-              ? 'border-[color:var(--color-ink-300)] text-[color:var(--color-ink-700)]'
+              ? 'border-[color:var(--color-border-default)] text-[color:var(--color-ink-700)]'
               : 'border-red-300 text-red-700'
           }`}
           data-history-delete-notice={deleteNotice.kind}
