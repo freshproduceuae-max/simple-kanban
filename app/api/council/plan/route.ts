@@ -23,7 +23,10 @@ import {
   getCouncilMemoryRepository,
   getMetricsRepository,
   getUserPreferencesRepository,
+  getTaskRepository,
 } from '@/lib/persistence/server';
+
+const normalizeTitle = (title: string) => title.trim().toLowerCase();
 
 /**
  * POST /api/council/plan  (F16 — Plan mode)
@@ -164,7 +167,33 @@ export async function POST(request: Request) {
     const proposals: { id: string; title: string }[] = [];
     if (frame.tasks.length > 0) {
       const repo = getProposalRepository();
-      for (const title of frame.tasks) {
+
+      // Dedup against the user's existing board before drafting more
+      // proposals for the same work. Without this, asking the Council
+      // to "make a tracker" twice (or a retried/duplicated turn) stacks
+      // identical tasks on the board once each proposal is approved —
+      // this bit us directly: a duplicate Plan turn landed the same
+      // 11 tasks twice before this check existed.
+      let existingTitles: Set<string>;
+      try {
+        const taskRepo = getTaskRepository();
+        const existing = await taskRepo.listForUser(userId);
+        existingTitles = new Set(existing.map((t) => normalizeTitle(t.title)));
+      } catch (err) {
+        // Fail open: if we can't load the existing board, don't block
+        // proposal creation on it — dedup is a nice-to-have, not a
+        // correctness requirement for the Write Gate.
+        console.error('plan: dedup lookup failed, proceeding without it', err);
+        existingTitles = new Set();
+      }
+      // Also dedup within this single response — the model can repeat
+      // itself inside one `json-plan` block.
+      const seenThisTurn = new Set<string>();
+
+      for (const task of frame.tasks) {
+        const key = normalizeTitle(task.title);
+        if (existingTitles.has(key) || seenThisTurn.has(key)) continue;
+        seenThisTurn.add(key);
         try {
           const row = await repo.create({
             user_id: userId,
@@ -175,9 +204,9 @@ export async function POST(request: Request) {
             // this session?" without replaying the full turn log.
             session_id: sessionId,
             kind: 'task',
-            payload: { title },
+            payload: { title: task.title, board_column: task.column },
           } as Parameters<typeof repo.create>[0]);
-          proposals.push({ id: row.id, title });
+          proposals.push({ id: row.id, title: task.title });
         } catch (err) {
           // Per PRD §9: a proposal-create failure inside Plan is
           // fail-visible but should not truncate the user-visible reply

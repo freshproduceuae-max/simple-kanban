@@ -6,14 +6,22 @@
  * `json-plan`:
  *
  *   ```json-plan
- *   { "tasks": ["title one", "title two"], "chips": ["scope?", "by when?"] }
+ *   { "tasks": [{ "title": "title one", "column": "backlog" }],
+ *     "chips": ["scope?", "by when?"] }
  *   ```
  *
  * `tasks` drives proposal-row creation (one `kind:'task'` proposal per
- * title). `chips` are Consolidator-requested clarifying prompts that
- * render as chip inputs under the reply (design-system §8.5). `chips`
- * is OPTIONAL — if the Consolidator judges the topic concrete enough,
- * it omits the field and the client renders no chips.
+ * title). `column` is one of the five board stages and tells the
+ * proposal which column to land in once approved; it's optional per
+ * task and defaults to `backlog` (a freshly-drafted, unconfirmed task
+ * belongs in Backlog, not To Do, until the user has actually approved
+ * it and is ready to act on it). For backward-compatibility with
+ * older Consolidator output (or a model that forgets the object form),
+ * a plain string task title is also accepted and defaults to
+ * `backlog`. `chips` are Consolidator-requested clarifying prompts
+ * that render as chip inputs under the reply (design-system §8.5).
+ * `chips` is OPTIONAL — if the Consolidator judges the topic concrete
+ * enough, it omits the field and the client renders no chips.
  *
  * The extractor is deliberately lenient: a missing fence, a parse
  * error, or a malformed structure all yield an empty result rather
@@ -24,8 +32,30 @@
  * can change its mind mid-reply (rare but cheap to handle).
  */
 
+import type { BoardColumn } from '@/lib/persistence/types';
+
+const VALID_COLUMNS: readonly BoardColumn[] = [
+  'backlog',
+  'todo',
+  'in_progress',
+  'review',
+  'done',
+];
+
+function isBoardColumn(value: unknown): value is BoardColumn {
+  return (
+    typeof value === 'string' &&
+    (VALID_COLUMNS as readonly string[]).includes(value)
+  );
+}
+
+export type PlanTask = {
+  title: string;
+  column: BoardColumn;
+};
+
 export type PlanFrame = {
-  tasks: string[];
+  tasks: PlanTask[];
   chips: string[];
 };
 
@@ -53,11 +83,29 @@ export function extractPlanFrame(fullText: string): PlanFrame {
   }
 
   const obj = parsed as { tasks?: unknown; chips?: unknown };
-  const tasks = Array.isArray(obj.tasks)
+  const tasks: PlanTask[] = Array.isArray(obj.tasks)
     ? obj.tasks
-        .filter((t): t is string => typeof t === 'string')
-        .map((t) => t.trim())
-        .filter(Boolean)
+        .map((t): PlanTask | null => {
+          if (typeof t === 'string') {
+            const title = t.trim();
+            return title ? { title, column: 'backlog' } : null;
+          }
+          if (typeof t === 'object' && t !== null) {
+            const { title: rawTitle, column: rawColumn } = t as {
+              title?: unknown;
+              column?: unknown;
+            };
+            const title =
+              typeof rawTitle === 'string' ? rawTitle.trim() : '';
+            if (!title) return null;
+            return {
+              title,
+              column: isBoardColumn(rawColumn) ? rawColumn : 'backlog',
+            };
+          }
+          return null;
+        })
+        .filter((t): t is PlanTask => t !== null)
     : [];
   const chips = Array.isArray(obj.chips)
     ? obj.chips

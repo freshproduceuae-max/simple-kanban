@@ -114,7 +114,13 @@ function buildSystemPrompt(mode: CouncilMode, researcherFindings?: string): stri
       // topic is concrete enough to stand on its own.
       'At the very end of your reply, append a fenced code block tagged `json-plan` ' +
       'containing JSON of the form ' +
-      '`{ "tasks": ["title one", "title two"], "chips": ["scope?", "by when?"] }`. ' +
+      '`{ "tasks": [{ "title": "title one", "column": "backlog" }], "chips": ["scope?", "by when?"] }`. ' +
+      'Each task\'s `column` must be exactly one of: "backlog", "todo", "in_progress", "review", "done" — ' +
+      'pick the stage that honestly reflects where the task stands right now. Use "backlog" for research, ' +
+      'definition, or anything not yet actionable; "todo" only for something the user could start today; ' +
+      '"in_progress" only if the user has said they are already working on it; "review" for something ' +
+      'awaiting a check or decision; "done" only if the user says it is already complete. When unsure, use ' +
+      '"backlog" — never assume a task is further along than the conversation actually supports. ' +
       'Include only the tasks you actually want to draft. Omit the `chips` field unless ' +
       'a short follow-up question would genuinely sharpen the draft.',
     advise: "Mode: Advise. You are reacting to the user's current board. Be brief. No committed board changes.",

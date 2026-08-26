@@ -12,7 +12,20 @@ export default defineConfig({
     // `.claude/worktrees/**` holds git worktrees created by the Agent
     // tool for isolated subagent runs. They're gitignored but vitest
     // would otherwise pick up their stale test files.
-    exclude: ["**/node_modules/**", "**/.next/**", "**/.claude/**", "**/dist/**"],
+    // "CV Master", "CPTO Case Studies", and "Widsom for AI" are
+    // untracked personal folders that happen to sit inside this repo's
+    // root (not part of the project) — one of them contains a stale
+    // duplicate copy of parts of this app that would otherwise run
+    // (and fail) here too. See the matching exclude in tsconfig.json.
+    exclude: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/.claude/**",
+      "**/dist/**",
+      "CV Master/**",
+      "CPTO Case Studies/**",
+      "Widsom for AI/**",
+    ],
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, ".") },

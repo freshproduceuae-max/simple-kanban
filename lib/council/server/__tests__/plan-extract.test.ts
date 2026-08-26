@@ -7,31 +7,58 @@ describe('extractPlanFrame', () => {
     expect(extractPlanFrame('')).toEqual({ tasks: [], chips: [] });
   });
 
-  it('parses a well-formed json-plan fence', () => {
+  it('parses a well-formed json-plan fence with explicit columns', () => {
     const text =
       'here is the plan:\n\n' +
       '```json-plan\n' +
-      '{"tasks":["write the spec","pick a colour"],"chips":["scope?","by when?"]}\n' +
+      '{"tasks":[{"title":"write the spec","column":"todo"},{"title":"pick a colour","column":"backlog"}],"chips":["scope?","by when?"]}\n' +
       '```';
     expect(extractPlanFrame(text)).toEqual({
-      tasks: ['write the spec', 'pick a colour'],
+      tasks: [
+        { title: 'write the spec', column: 'todo' },
+        { title: 'pick a colour', column: 'backlog' },
+      ],
       chips: ['scope?', 'by when?'],
     });
   });
 
+  it('defaults a task with no column to backlog', () => {
+    const text = '```json-plan\n{"tasks":[{"title":"only task"}]}\n```';
+    expect(extractPlanFrame(text).tasks).toEqual([
+      { title: 'only task', column: 'backlog' },
+    ]);
+  });
+
+  it('defaults a task with an invalid column to backlog', () => {
+    const text =
+      '```json-plan\n{"tasks":[{"title":"bad column","column":"someday"}]}\n```';
+    expect(extractPlanFrame(text).tasks).toEqual([
+      { title: 'bad column', column: 'backlog' },
+    ]);
+  });
+
+  it('accepts a plain string task for backward-compatibility, defaulting to backlog', () => {
+    const text = '```json-plan\n{"tasks":["plain string title"]}\n```';
+    expect(extractPlanFrame(text).tasks).toEqual([
+      { title: 'plain string title', column: 'backlog' },
+    ]);
+  });
+
   it('allows the chips field to be omitted', () => {
-    const text = '```json-plan\n{"tasks":["only task"]}\n```';
+    const text = '```json-plan\n{"tasks":[{"title":"only task"}]}\n```';
     expect(extractPlanFrame(text)).toEqual({
-      tasks: ['only task'],
+      tasks: [{ title: 'only task', column: 'backlog' }],
       chips: [],
     });
   });
 
   it('takes the LAST json-plan fence when multiple are present', () => {
     const text =
-      '```json-plan\n{"tasks":["first draft"]}\n```\n\nthen on reflection:\n' +
-      '```json-plan\n{"tasks":["final draft"]}\n```';
-    expect(extractPlanFrame(text).tasks).toEqual(['final draft']);
+      '```json-plan\n{"tasks":[{"title":"first draft"}]}\n```\n\nthen on reflection:\n' +
+      '```json-plan\n{"tasks":[{"title":"final draft"}]}\n```';
+    expect(extractPlanFrame(text).tasks).toEqual([
+      { title: 'final draft', column: 'backlog' },
+    ]);
   });
 
   it('returns empty on malformed JSON (lenient, not throwing)', () => {
@@ -39,18 +66,22 @@ describe('extractPlanFrame', () => {
     expect(extractPlanFrame(text)).toEqual({ tasks: [], chips: [] });
   });
 
-  it('ignores non-string task entries', () => {
-    const text = '```json-plan\n{"tasks":["keep me", 42, null, "me too"]}\n```';
-    expect(extractPlanFrame(text).tasks).toEqual(['keep me', 'me too']);
+  it('ignores non-string, non-object task entries and objects with no title', () => {
+    const text =
+      '```json-plan\n{"tasks":[{"title":"keep me"}, 42, null, {"column":"todo"}, {"title":"me too"}]}\n```';
+    expect(extractPlanFrame(text).tasks).toEqual([
+      { title: 'keep me', column: 'backlog' },
+      { title: 'me too', column: 'backlog' },
+    ]);
   });
 
-  it('trims whitespace from tasks and chips and drops empties', () => {
+  it('trims whitespace from task titles and chips and drops empties', () => {
     const text =
       '```json-plan\n' +
-      '{"tasks":["  spaced  ","","    "],"chips":["  chip  ",""]}\n' +
+      '{"tasks":[{"title":"  spaced  "},{"title":""},{"title":"    "}],"chips":["  chip  ",""]}\n' +
       '```';
     expect(extractPlanFrame(text)).toEqual({
-      tasks: ['spaced'],
+      tasks: [{ title: 'spaced', column: 'backlog' }],
       chips: ['chip'],
     });
   });

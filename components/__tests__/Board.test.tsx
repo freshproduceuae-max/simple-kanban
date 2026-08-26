@@ -26,7 +26,7 @@ describe("Board (shell)", () => {
 
   it("shows empty-state placeholder in each column when initialTasks is empty", () => {
     render(<Board initialTasks={[]} />);
-    expect(screen.getAllByText("No tasks")).toHaveLength(3);
+    expect(screen.getAllByText("No tasks")).toHaveLength(5);
   });
 
   it("has an Add task button", () => {
