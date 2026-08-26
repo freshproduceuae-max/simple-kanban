@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import type { Task, TaskStatus } from "@/lib/types";
+import { COLUMNS, type Task, type TaskStatus } from "@/lib/types";
 
 export type DialogMode =
   | { kind: "create" }
@@ -187,9 +187,11 @@ export function TaskDialog({ mode, onClose, onSubmit, onDelete }: Props) {
           onChange={(e) => setStatus(e.target.value as TaskStatus)}
           className="mb-space-4 w-full rounded border border-border-default bg-surface-card min-h-tap p-space-2 text-ink-900 focus:outline-none focus:shadow-ring-focus"
         >
-          <option value="todo">To Do</option>
-          <option value="in_progress">In Progress</option>
-          <option value="done">Done</option>
+          {COLUMNS.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
         </select>
 
         <div className="flex items-center justify-between gap-space-2">

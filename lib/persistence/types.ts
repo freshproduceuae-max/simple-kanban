@@ -4,7 +4,7 @@
  * Feature PRs (F02, F05, F12, F18, F19, F21, F25) fill in fields as needed.
  */
 
-export type BoardColumn = 'todo' | 'in_progress' | 'done';
+export type BoardColumn = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 
 export interface TaskRow {
   id: string;

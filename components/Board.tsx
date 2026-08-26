@@ -91,8 +91,10 @@ export function Board({ initialTasks }: Props) {
 
   const byStatus = useMemo(() => {
     const empty: Record<TaskStatus, Task[]> = {
+      backlog: [],
       todo: [],
       in_progress: [],
+      review: [],
       done: [],
     };
     for (const t of tasks) empty[t.status].push(t);

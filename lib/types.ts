@@ -1,4 +1,4 @@
-export type TaskStatus = "todo" | "in_progress" | "done";
+export type TaskStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
 
 export type Task = {
   id: string;
@@ -10,8 +10,10 @@ export type Task = {
 };
 
 export const COLUMNS: { id: TaskStatus; label: string }[] = [
+  { id: "backlog", label: "Backlog" },
   { id: "todo", label: "To Do" },
   { id: "in_progress", label: "In Progress" },
+  { id: "review", label: "Review" },
   { id: "done", label: "Done" },
 ];
 
